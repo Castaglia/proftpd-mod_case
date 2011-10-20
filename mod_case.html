@@ -1,0 +1,157 @@
+<!-- $Id: mod_case.html,v 1.6 2011/04/19 16:09:58 tj Exp tj $ -->
+<!-- $Source: /home/tj/proftpd/modules/doc/RCS/mod_case.html,v $ -->
+
+<html>
+<head>
+<title>ProFTPD module mod_case</title>
+</head>
+
+<body bgcolor=white>
+
+<hr><br>
+<center>
+<h2><b>ProFTPD module <code>mod_case</code></b></h2>
+</center>
+<hr><br>
+
+The <code>mod_case</code> module is designed to help ProFTPD be
+case-insensitive, for those sites that may need it (<i>e.g.</i> those
+that are migrating from a Windows environment or have mounted Windows
+filesystems).
+
+<p>
+<code>mod_case</code> works by performing two checks on the filename used in
+FTP commands.  First, <code>mod_case</code> will scan the directory to see
+if there is already a file whose name exactly matches the given filename.  If
+not, <code>mod_case</code> will scan the directory again, this time looking
+for case-insensitive matches.
+
+<p>
+This module is contained in the <code>mod_case.c</code> file for
+ProFTPD 1.3.<i>x</i>, and is not compiled by default.  Installation instructions
+are discussed <a href="#Installation">here</a>.
+
+<p>
+The most current version of <code>mod_case</code> can be found at:
+<pre>
+  <a href="http://www.castaglia.org/proftpd/">http://www.castaglia.org/proftpd/</a>
+</pre>
+
+<h2>Author</h2>
+<p>
+Please contact TJ Saunders &lt;tj <i>at</i> castaglia.org&gt; with any
+questions, concerns, or suggestions regarding this module.
+
+<h2>Directives</h2>
+<ul>
+  <li><a href="#CaseEngine">CaseEngine</a>
+  <li><a href="#CaseIgnore">CaseIgnore</a>
+  <li><a href="#CaseLog">CaseLog</a>
+</ul>
+
+<hr>
+<h2><a name="CaseEngine">CaseEngine</a></h2>
+<strong>Syntax:</strong> CaseEngine <em>on|off</em><br>
+<strong>Default:</strong> off<br>
+<strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
+<strong>Module:</strong> mod_case<br>
+<strong>Compatibility:</strong> 1.2.9 and later
+
+<p>
+The <code>CaseEngine</code> directive enables or disables the module's
+runtime case-matching engine.  If it is set to <em>off</em> this module does no
+case-insensitive checking.  Use this directive to disable the module instead of
+commenting out all <code>mod_case</code> directives.
+
+<p>
+<hr>
+<h2><a name="CaseIgnore">CaseIgnore</a></h2>
+<strong>Syntax:</strong> CaseIgnore <em>on|off|cmd-list</em><br>
+<strong>Default:</strong> off<br>
+<strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code>, <code>&lt;Anonymous&gt;</code>, <code>&lt;Directory&gt;</code><br>
+<strong>Module:</strong> mod_case<br>
+<strong>Compatibility:</strong> 1.2.9 and later
+
+<p>
+The <code>CaseIgnore</code> directive is used to enable case-insensitive
+matching, possibly on a per-FTP command basis.  If it is set to <em>off</em>,
+no case-insensitive matching is performed.  If set to <em>on</em>, then
+case-insensitive matcing is performed for all FTP commands that
+<code>mod_case</code> handles (see below).  Otherwise, one can configure
+a <em>cmd-list</em>, which is a comma-separated list of FTP commands for
+which <code>mod_case</code> is to do case-insensitive matching.
+
+<p>
+<code>mod_case</code> handles the following FTP commands: APPE, CWD, DELE,
+LIST, MDTM, MKD, MLSD, MLST, NLST, RETR, RMD, RNFR, RNTO, SIZE, STOR, XCWD,
+XMKD, and XRMD.
+
+<p>
+Examples:
+<pre>
+  # Enable case-insensitivity for all FTP commands handled by mod_case
+  CaseIgnore on
+
+  # Enable case-insensitivity only for downloads
+  CaseIgnore RETR
+
+  # Enable case-insensitivity for uploads and downloads
+  CaseIgnore APPE,RETR,STOR
+</pre>
+
+<p>
+<hr>
+<h2><a name="CaseLog">CaseLog</a></h2>
+<strong>Syntax:</strong> CaseLog <em>path|&quot;none&quot;</em><br>
+<strong>Default:</strong> None<br>
+<strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
+<strong>Module:</strong> mod_case<br>
+<strong>Compatibility:</strong> 1.2.9 and later
+
+<p>
+The <code>CaseLog</code> directive is used to a specify a log file for
+<code>mod_case</code> reporting and debugging, and can be done a per-server
+basis.  The <em>path</em> parameter must be the full path to the file to use for
+logging.  Note that this path must <b>not</b> be to a world-writeable
+directory and, unless <code>AllowLogSymlinks</code> is explicitly set to
+<em>on</em> (generally a bad idea), the path must <b>not</b> be a symbolic
+link.
+
+<p>
+If <em>path</em> is &quot;none&quot;, no logging will be done at all; this
+setting can be used to override a <code>CaseLog</code> setting inherited from
+a <code>&lt;Global&gt;</code> context.
+
+<p>
+<hr>
+<h2><a name="Installation">Installation</a></h2>
+To install <code>mod_case</code>, copy the <code>mod_case.c</code> file into
+<pre>
+  <i>proftpd-dir</i>/contrib/
+</pre>
+after unpacking the latest proftpd-1.2 source code.  Then follow the usual
+steps for using third-party modules in proftpd:
+<pre>
+  ./configure --with-modules=mod_case
+  make
+  make install
+</pre>
+
+<p>
+<hr><br>
+
+Author: <i>$Author: tj $</i><br>
+Last Updated: <i>$Date: 2011/04/19 16:09:58 $</i><br>
+
+<br><hr>
+
+<font size=2><b><i>
+&copy; Copyright 2004-2011 TJ Saunders<br>
+ All Rights Reserved<br>
+</i></b></font>
+
+<hr><br>
+
+</body>
+</html>
+
