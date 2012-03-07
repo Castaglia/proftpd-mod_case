@@ -1,7 +1,7 @@
 /*
  * ProFTPD: mod_case -- provides case-insensivity
  *
- * Copyright (c) 2004-2011 TJ Saunders
+ * Copyright (c) 2004-2012 TJ Saunders
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@
 #include "conf.h"
 #include "privs.h"
 
-#define MOD_CASE_VERSION	"mod_case/0.7"
+#define MOD_CASE_VERSION	"mod_case/0.8"
 
 /* Make sure the version of proftpd is as necessary. */
 #if PROFTPD_VERSION_NUMBER < 0x0001030402
@@ -182,20 +182,36 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
         pr_cmd_cmp(cmd, PR_CMD_NLST_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_STAT_ID) == 0) {
 
-       if (path_index > 0) {
-         char *arg;
+      /* XXX Be sure to overwrite the entire cmd->argv array, not just
+       * cmd->arg.
+       */
 
-         arg = pstrdup(cmd->tmp_pool, cmd->arg);
-         arg[path_index] = '\0';
-         arg = pstrcat(cmd->pool, arg, dir, file, NULL);
-         cmd->arg = arg;
+      if (path_index > 0) {
+        char *arg;
 
-       } else {
+        arg = pstrdup(cmd->tmp_pool, cmd->arg);
+        arg[path_index] = '\0';
+        arg = pstrcat(cmd->pool, arg, dir, file, NULL);
+        cmd->arg = arg;
+
+      } else {
         cmd->arg = pstrcat(cmd->pool, dir, file, NULL);
-       }
+      }
 
     } else {
-      cmd->argv[1] = pstrcat(cmd->pool, dir, file, NULL);
+      char *path;
+      array_header *argv;
+
+      path = pstrcat(cmd->pool, dir, file, NULL);
+
+      /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
+      argv = make_array(cmd->pool, 2, sizeof(char *));
+      *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
+      *((char **) push_array(argv)) = path;
+      *((char **) push_array(argv)) = NULL;
+
+      cmd->argv = (char **) argv->elts;
+      pr_cmd_clear_cache(cmd);
 
       /* In the case of many commands, we also need to overwrite cmd->arg. */
       if (pr_cmd_cmp(cmd, PR_CMD_APPE_ID) == 0 ||
@@ -214,7 +230,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
           pr_cmd_cmp(cmd, PR_CMD_XCWD_ID) == 0 ||
           pr_cmd_cmp(cmd, PR_CMD_XMKD_ID) == 0 ||
           pr_cmd_cmp(cmd, PR_CMD_XRMD_ID) == 0) {
-        cmd->arg = pstrcat(cmd->pool, dir, file, NULL);
+        cmd->arg = path;
       }
     }
 
@@ -355,7 +371,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
       }
 
     } else {
-      path = pstrdup(cmd->tmp_pool, cmd->argv[1]);
+      path = pstrdup(cmd->tmp_pool, cmd->arg);
     }
   }
 
