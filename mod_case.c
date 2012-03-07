@@ -36,6 +36,8 @@
 static int case_engine = FALSE;
 static int case_logfd = -1;
 
+static const char *trace_channel = "case";
+
 /* Support routines
  */
 
@@ -154,7 +156,6 @@ static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
   }
 
   if (strncmp(proto, "sftp", 5) == 0) {
-
     /* We should only be handling SFTP SYMLINk and LINK requests here */
 
     cmd->arg = pstrcat(cmd->pool, src_path, "\t", dst_path, NULL);
@@ -199,18 +200,48 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
       }
 
     } else {
-      char *path;
+      char *arg, *dup_path, *path;
       array_header *argv;
+      int flags = PR_STR_FL_PRESERVE_COMMENTS;
 
       path = pstrcat(cmd->pool, dir, file, NULL);
 
       /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
       argv = make_array(cmd->pool, 2, sizeof(char *));
       *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
-      *((char **) push_array(argv)) = path;
-      *((char **) push_array(argv)) = NULL;
+      cmd->argc = 1;
 
+      if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
+        *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
+        cmd->argc++;
+      }
+
+      /* Handle spaces in the new path properly by breaking them up and adding
+       * them into the argv.
+       */
+      dup_path = pstrdup(cmd->tmp_pool, path);
+
+      arg = pr_str_get_word(&dup_path, flags);
+      while (arg != NULL) {
+        pr_signals_handle();
+
+        *((char **) push_array(argv)) = pstrdup(cmd->pool, arg);
+        arg = pr_str_get_word(&dup_path, flags);
+      }
+
+      cmd->argc += argv->nelts;
+
+      *((char **) push_array(argv)) = NULL;
       cmd->argv = (char **) argv->elts;
+
+{
+  register unsigned int i;
+
+  (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION, "replace_path: cmd->argc = %d", cmd->argc);
+  for (i = 0; i < cmd->argc; i++) {
+    (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION, "replace_path: cmd->argv[%u] = '%s'", i, cmd->argv[i]);
+  }
+}
       pr_cmd_clear_cache(cmd);
 
       /* In the case of many commands, we also need to overwrite cmd->arg. */
@@ -403,6 +434,9 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
   if (res == FALSE) {
     /* No match found. */
+    pr_trace_msg(trace_channel, 9,
+      "no case-insensitive matches found for file '%s' in directory '%s'",
+      file, dir);
     return PR_DECLINED(cmd);
   }
 
@@ -522,6 +556,10 @@ MODRET case_pre_link(cmd_rec *cmd) {
     modified_arg = TRUE;
 
   } else {
+    pr_trace_msg(trace_channel, 9,
+      "no case-insensitive matches found for file '%s' in directory '%s'",
+      src_file, src_dir);
+
     /* No match (or exact match) found; restore the original src_path. */
     if (src_ptr != NULL) {
       *src_ptr = '/';
@@ -543,6 +581,10 @@ MODRET case_pre_link(cmd_rec *cmd) {
     modified_arg = TRUE;
 
   } else {
+    pr_trace_msg(trace_channel, 9,
+      "no case-insensitive matches found for file '%s' in directory '%s'",
+      dst_file, dst_dir);
+
     /* No match (or exact match) found; restore the original src_path. */
     if (dst_ptr != NULL) {
       *dst_ptr = '/';
