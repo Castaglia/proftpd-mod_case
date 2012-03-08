@@ -20,11 +20,11 @@ that are migrating from a Windows environment or have mounted Windows
 filesystems).
 
 <p>
-<code>mod_case</code> works by performing two checks on the filename used in
-FTP commands.  First, <code>mod_case</code> will scan the directory to see
-if there is already a file whose name exactly matches the given filename.  If
-not, <code>mod_case</code> will scan the directory again, this time looking
-for case-insensitive matches.
+The <code>mod_case</code> module works by performing two checks on the
+filename used in FTP commands.  First, <code>mod_case</code> will scan the
+directory to see if there is already a file whose name exactly matches the
+given filename.  If not, <code>mod_case</code> will then looks for any
+case-insensitive matches.
 
 <p>
 This module is contained in the <code>mod_case.c</code> file for
@@ -82,9 +82,29 @@ a <em>cmd-list</em>, which is a comma-separated list of FTP commands for
 which <code>mod_case</code> is to do case-insensitive matching.
 
 <p>
-<code>mod_case</code> handles the following FTP commands: APPE, CWD, DELE,
-LIST, MDTM, MKD, MLSD, MLST, NLST, RETR, RMD, RNFR, RNTO, SIZE, STOR, XCWD,
-XMKD, and XRMD.
+The <code>mod_case</code> module handles the following FTP commands:
+<ul>
+  <li><code>APPE</code>
+  <li><code>CWD</code>/<code>XCWD</code>
+  <li><code>DELE</code>
+  <li><code>LIST</code>
+  <li><code>MDTM</code>
+  <li><code>MKD</code>/<code>XMKD</code>
+  <li><code>MLSD</code>
+  <li><code>MLST</code>
+  <li><code>NLST</code>
+  <li><code>RETR</code>
+  <li><code>RMD</code>/<code>XRMD</code>
+  <li><code>RNFR</code>
+  <li><code>RNTO</code>
+  <li><code>SITE CPFR</code> (from <a href="mod_copy.html"><code>mod_copy</code></a>)
+  <li><code>SITE CPTO</code> (from <a href="mod_copy.html"><code>mod_copy</code></a>)
+  <li><code>SITE CHGRP</code>
+  <li><code>SITE CHMOD</code>
+  <li><code>SIZE</code>
+  <li><code>STAT</code>
+  <li><code>STOR</code>
+</ul>
 
 <p>
 Examples:
@@ -102,7 +122,7 @@ Examples:
 <p>
 <hr>
 <h2><a name="CaseLog">CaseLog</a></h2>
-<strong>Syntax:</strong> CaseLog <em>path|&quot;none&quot;</em><br>
+<strong>Syntax:</strong> CaseLog <em>path</em>|&quot;none&quot;<br>
 <strong>Default:</strong> None<br>
 <strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
 <strong>Module:</strong> mod_case<br>
@@ -112,7 +132,7 @@ Examples:
 The <code>CaseLog</code> directive is used to a specify a log file for
 <code>mod_case</code> reporting and debugging, and can be done a per-server
 basis.  The <em>path</em> parameter must be the full path to the file to use for
-logging.  Note that this path must <b>not</b> be to a world-writeable
+logging.  Note that this path must <b>not</b> be to a world-writable
 directory and, unless <code>AllowLogSymlinks</code> is explicitly set to
 <em>on</em> (generally a bad idea), the path must <b>not</b> be a symbolic
 link.
@@ -129,8 +149,8 @@ To install <code>mod_case</code>, copy the <code>mod_case.c</code> file into
 <pre>
   <i>proftpd-dir</i>/contrib/
 </pre>
-after unpacking the latest proftpd-1.2 source code.  Then follow the usual
-steps for using third-party modules in proftpd:
+after unpacking the latest proftpd-1.3.<i>x</i> source code.  Then follow the
+usual steps for using third-party modules in proftpd:
 <pre>
   ./configure --with-modules=mod_case
   make
@@ -146,7 +166,7 @@ Last Updated: <i>$Date: 2011/04/19 16:09:58 $</i><br>
 <br><hr>
 
 <font size=2><b><i>
-&copy; Copyright 2004-2011 TJ Saunders<br>
+&copy; Copyright 2004-2012 TJ Saunders<br>
  All Rights Reserved<br>
 </i></b></font>
 
