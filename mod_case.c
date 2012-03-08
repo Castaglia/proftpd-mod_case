@@ -143,6 +143,42 @@ static char *case_get_opts_path(cmd_rec *cmd, int *path_index) {
   return path;
 }
 
+static void case_replace_copy_paths(cmd_rec *cmd, const char *proto,
+    const char *src_path, const char *dst_path) {
+
+  /* Minor nit: if src_path/dst_path is "//", then reduce it to just "/". */
+  if (strcmp(src_path, "//") == 0) {
+    src_path = pstrdup(cmd->tmp_pool, "/");
+  }
+
+  if (strcmp(dst_path, "//") == 0) {
+    dst_path = pstrdup(cmd->tmp_pool, "/");
+  }
+
+  if (strncmp(proto, "ftp", 4) == 0 ||
+      strncmp(proto, "ftps", 5) == 0) {
+    array_header *argv;
+
+    /* We should only be handling SITE COPY (over FTP/FTPS) requests here */
+
+    argv = make_array(cmd->pool, 4, sizeof(char *));
+    *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
+    *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
+    *((char **) push_array(argv)) = pstrdup(cmd->pool, src_path);
+    *((char **) push_array(argv)) = pstrdup(cmd->pool, dst_path);
+
+    cmd->argc = argv->nelts;
+
+    *((char **) push_array(argv)) = NULL;
+    cmd->argv = (char **) argv->elts;
+
+    cmd->arg = pstrcat(cmd->pool, cmd->argv[1], " ", src_path, " ", dst_path,
+      NULL);
+  }
+
+  return;
+}
+
 static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
     const char *src_path, const char *dst_path) {
 
@@ -176,7 +212,8 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
     dir = pstrdup(cmd->tmp_pool, "/");
   }
 
-  if (strncmp(proto, "ftp", 4) == 0) {
+  if (strncmp(proto, "ftp", 4) == 0 ||
+      strncmp(proto, "ftps", 5) == 0) {
 
     /* Special handling of LIST/NLST/STAT commands, which can take options */
     if (pr_cmd_cmp(cmd, PR_CMD_LIST_ID) == 0 ||
@@ -209,11 +246,19 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
       /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
       argv = make_array(cmd->pool, 2, sizeof(char *));
       *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
-      cmd->argc = 1;
 
       if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
-        *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
-        cmd->argc++;
+
+        if (strncmp(cmd->argv[1], "CHGRP", 6) == 0 ||
+            strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
+
+          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
+          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[2]);
+
+        } else if (strncmp(cmd->argv[1], "CPFR", 5) == 0 ||
+                   strncmp(cmd->argv[1], "CPTO", 5) == 0) {
+          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
+        }
       }
 
       /* Handle spaces in the new path properly by breaking them up and adding
@@ -229,19 +274,11 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
         arg = pr_str_get_word(&dup_path, flags);
       }
 
-      cmd->argc += argv->nelts;
+      cmd->argc = argv->nelts;
 
       *((char **) push_array(argv)) = NULL;
       cmd->argv = (char **) argv->elts;
 
-{
-  register unsigned int i;
-
-  (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION, "replace_path: cmd->argc = %d", cmd->argc);
-  for (i = 0; i < cmd->argc; i++) {
-    (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION, "replace_path: cmd->argv[%u] = '%s'", i, cmd->argv[i]);
-  }
-}
       pr_cmd_clear_cache(cmd);
 
       /* In the case of many commands, we also need to overwrite cmd->arg. */
@@ -262,6 +299,17 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
           pr_cmd_cmp(cmd, PR_CMD_XMKD_ID) == 0 ||
           pr_cmd_cmp(cmd, PR_CMD_XRMD_ID) == 0) {
         cmd->arg = path;
+      }
+    }
+
+    if (pr_trace_get_level(trace_channel) >= 19) {
+      register unsigned int i;
+
+      pr_trace_msg(trace_channel, 19, "replacing path: cmd->argc = %d",
+        cmd->argc);
+      for (i = 0; i < cmd->argc; i++) {
+        pr_trace_msg(trace_channel, 19, "replacing path: cmd->argv[%u] = '%s'",
+          i, cmd->argv[i]);
       }
     }
 
@@ -355,9 +403,162 @@ static int case_have_file(pool *p, const char *dir, const char *file,
 /* Command handlers
  */
 
+/* The SITE COPY requests are different enough to warrant their own command
+ * handler.
+ */
+MODRET case_pre_copy(cmd_rec *cmd) {
+  config_rec *c;
+  const char *proto;
+  char *src_path, *src_dir = NULL, *src_file = NULL,
+    *dst_path, *dst_dir = NULL, *dst_file = NULL, *file_match = NULL,
+    *src_ptr, *dst_ptr;
+  size_t file_len;
+  int modified_arg = FALSE, res;
+
+  if (!case_engine) {
+    return PR_DECLINED(cmd);
+  }
+
+  c = find_config(CURRENT_CONF, CONF_PARAM, "CaseIgnore", FALSE);
+  if (c == NULL) {
+    return PR_DECLINED(cmd);
+  }
+
+  if (*((unsigned int *) c->argv[0]) != TRUE) {
+    return PR_DECLINED(cmd);
+  }
+
+  if (c->argv[1] != NULL &&
+      case_expr_eval_cmds(cmd, *((array_header **) c->argv[1])) == 0) {
+    return PR_DECLINED(cmd);
+  }
+
+  proto = pr_session_get_protocol(0);
+
+  if (strncasecmp(cmd->argv[2], "HELP", 5) == 0) {
+    /* Ignore SITE COPY HELP requests */
+    return PR_DECLINED(cmd);
+  }
+
+  /* We know the protocol here will always be "ftp" or "ftps", right? And that
+   * we are only handling SITE COPY requests here.
+   */
+
+  if (cmd->argc != 4) {
+    /* Malformed SITE COPY cmd_rec */
+    (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
+      "malformed SITE COPY request, ignoring");
+    return PR_DECLINED(cmd);
+  }
+
+  src_path = cmd->argv[2];
+  dst_path = cmd->argv[3];
+
+  /* Separate the path into directory and file components. */
+  src_ptr = strrchr(src_path, '/');
+  if (src_ptr == NULL) {
+    src_dir = ".";
+    src_file = src_path;
+
+  } else {
+    if (src_ptr != src_path) {
+      *src_ptr = '\0';
+      src_dir = src_path;
+      src_file = src_ptr + 1;
+
+    } else {
+      /* Handle the case where the path is "/path". */
+      src_dir = "/";
+      src_file = src_ptr + 1;
+    }
+  }
+
+  dst_ptr = strrchr(dst_path, '/');
+  if (dst_ptr == NULL) {
+    dst_dir = ".";
+    dst_file = dst_path;
+
+  } else {
+    if (dst_ptr != dst_path) {
+      *dst_ptr = '\0';
+      dst_dir = dst_path;
+      dst_file = dst_ptr + 1;
+
+    } else {
+      /* Handle the case where the path is "/path". */
+      dst_dir = "/";
+      dst_file = dst_ptr + 1;
+    }
+  }
+
+  pr_trace_msg(trace_channel, 9,
+    "checking client-sent source path '%s', destination path '%s'", src_path,
+    dst_path);
+
+  file_len = strlen(src_file);
+
+  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
+    src_file, src_dir);
+
+  res = case_have_file(cmd->tmp_pool, src_dir, src_file, file_len, &file_match);
+  if (res < 0) {
+    return PR_DECLINED(cmd);
+  }
+
+  if (res == TRUE &&
+      file_match != NULL) {
+    /* Replace the source path */
+    src_path = pdircat(cmd->tmp_pool, src_dir, file_match, NULL);
+    modified_arg = TRUE;
+
+  } else {
+    pr_trace_msg(trace_channel, 9,
+      "no case-insensitive matches found for file '%s' in directory '%s'",
+      src_file, src_dir);
+
+    /* No match (or exact match) found; restore the original src_path. */
+    if (src_ptr != NULL) {
+      *src_ptr = '/';
+    }
+  }
+
+  file_len = strlen(dst_file);
+  file_match = NULL;
+
+  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
+    dst_file, dst_dir);
+
+  res = case_have_file(cmd->tmp_pool, dst_dir, dst_file, file_len, &file_match);
+  if (res == TRUE) {
+    if (file_match != NULL) {
+      /* Replace the destination path */
+      dst_path = pdircat(cmd->tmp_pool, dst_dir, file_match, NULL);
+      modified_arg = TRUE;
+    }
+
+  } else {
+    pr_trace_msg(trace_channel, 9,
+      "no case-insensitive matches found for file '%s' in directory '%s'",
+      dst_file, dst_dir);
+
+    /* No match (or exact match) found; restore the original dst_path. */
+    if (dst_ptr != NULL) {
+      *dst_ptr = '/';
+    }
+  }
+
+  /* Overwrite the client-given paths. */
+  if (modified_arg) {
+    case_replace_copy_paths(cmd, proto, src_path, dst_path);
+  }
+
+  return PR_DECLINED(cmd);
+}
+
 MODRET case_pre_cmd(cmd_rec *cmd) {
   config_rec *c;
-  char *path = NULL, *dir = NULL, *file = NULL, *file_match = NULL, *tmp;
+  char *path = NULL, *dir = NULL, *file = NULL, *file_match = NULL,
+    *replace_path = NULL, *tmp;
   const char *proto = NULL;
   size_t file_len;
   int path_index = -1, res;
@@ -375,7 +576,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
     return PR_DECLINED(cmd);
   }
 
-  if (c->argv[1] &&
+  if (c->argv[1] != NULL &&
       case_expr_eval_cmds(cmd, *((array_header **) c->argv[1])) == 0) {
     return PR_DECLINED(cmd);
   }
@@ -401,10 +602,61 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
         return PR_DECLINED(cmd);
       }
 
+    } else if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
+      register unsigned int i;
+
+      if (strncmp(cmd->argv[1], "COPY", 5) == 0) {
+        return case_pre_copy(cmd);
+      }
+
+      if (strncmp(cmd->argv[1], "CHGRP", 6) == 0 ||
+          strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
+
+        if (cmd->argc < 4) {
+          pr_trace_msg(trace_channel, 3,
+            "ignoring SITE %s: not enough parameters (%d)", cmd->argv[1],
+            cmd->argc - 2);
+          return PR_DECLINED(cmd);
+        }
+
+        path = "";
+
+        /* Skip over "SITE, "CHMOD" (or "CHGRP"), and the mode (or group). */
+        for (i = 3; i < cmd->argc; i++) {
+          path = pstrcat(cmd->tmp_pool, path, *path ? " " : "",
+            pr_fs_decode_path(cmd->tmp_pool, cmd->argv[i]), NULL);
+        }
+
+      } else if (strncmp(cmd->argv[1], "CPFR", 5) == 0 ||
+                 strncmp(cmd->argv[1], "CPTO", 5) == 0) {
+
+        if (cmd->argc < 3) {
+          pr_trace_msg(trace_channel, 3,
+            "ignoring SITE %s: not enough parameters (%d)", cmd->argv[1],
+            cmd->argc - 2);
+          return PR_DECLINED(cmd);
+        }
+
+        path = "";
+
+        /* Skip over "SITE, and "CPFR" (or "CPTO"). */
+        for (i = 2; i < cmd->argc; i++) {
+          path = pstrcat(cmd->tmp_pool, path, *path ? " " : "",
+            pr_fs_decode_path(cmd->tmp_pool, cmd->argv[i]), NULL);
+        }
+
+      } else {
+        (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
+          "unsupported SITE %s command, ignoring", cmd->argv[1]);
+        return PR_DECLINED(cmd);
+      }
+
     } else {
       path = pstrdup(cmd->tmp_pool, cmd->arg);
     }
   }
+
+  pr_trace_msg(trace_channel, 9, "checking client-sent path '%s'", path);
 
   /* Separate the path into directory and file components. */
   tmp = strrchr(path, '/');
@@ -427,6 +679,9 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
   file_len = strlen(file);
 
+  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
+    file, dir);
+
   res = case_have_file(cmd->tmp_pool, dir, file, file_len, &file_match);
   if (res < 0) {
     return PR_DECLINED(cmd);
@@ -448,6 +703,12 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
   }
 
   /* Overwrite the client-given path. */
+
+  replace_path = tmp ? pstrcat(cmd->tmp_pool, dir, "/", NULL) : "";
+  replace_path = pdircat(cmd->tmp_pool, replace_path, file_match, NULL);
+  pr_trace_msg(trace_channel, 9, "replacing path '%s' with '%s'",
+    path, replace_path);
+
   case_replace_path(cmd, proto,
     tmp ? pstrcat(cmd->pool, dir, "/", NULL) : "", file_match, path_index);
 
@@ -479,7 +740,7 @@ MODRET case_pre_link(cmd_rec *cmd) {
     return PR_DECLINED(cmd);
   }
 
-  if (c->argv[1] &&
+  if (c->argv[1] != NULL &&
       case_expr_eval_cmds(cmd, *((array_header **) c->argv[1])) == 0) {
     return PR_DECLINED(cmd);
   }
@@ -542,7 +803,14 @@ MODRET case_pre_link(cmd_rec *cmd) {
     }
   }
 
+  pr_trace_msg(trace_channel, 9,
+    "checking client-sent source path '%s', destination path '%s'", src_path,
+    dst_path);
+
   file_len = strlen(src_file);
+
+  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
+    src_file, src_dir);
 
   res = case_have_file(cmd->tmp_pool, src_dir, src_file, file_len, &file_match);
   if (res < 0) {
@@ -569,6 +837,9 @@ MODRET case_pre_link(cmd_rec *cmd) {
   file_len = strlen(dst_file);
   file_match = NULL;
 
+  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
+    dst_file, dst_dir);
+
   res = case_have_file(cmd->tmp_pool, dst_dir, dst_file, file_len, &file_match);
   if (res < 0) {
     return PR_DECLINED(cmd);
@@ -585,7 +856,7 @@ MODRET case_pre_link(cmd_rec *cmd) {
       "no case-insensitive matches found for file '%s' in directory '%s'",
       dst_file, dst_dir);
 
-    /* No match (or exact match) found; restore the original src_path. */
+    /* No match (or exact match) found; restore the original dst_path. */
     if (dst_ptr != NULL) {
       *dst_ptr = '/';
     }
@@ -729,6 +1000,7 @@ static cmdtable case_cmdtab[] = {
   { PRE_CMD,	C_RMD,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
   { PRE_CMD,	C_RNFR,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
   { PRE_CMD,	C_RNTO,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
+  { PRE_CMD,	C_SITE,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
   { PRE_CMD,	C_SIZE,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
   { PRE_CMD,	C_STAT,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
   { PRE_CMD,	C_STOR,	G_NONE, case_pre_cmd,	TRUE,	FALSE },

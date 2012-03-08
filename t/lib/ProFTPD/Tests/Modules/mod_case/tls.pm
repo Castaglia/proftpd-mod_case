@@ -78,6 +78,8 @@ sub caseignore_tls_retr {
     PidFile => $pid_file,
     ScoreboardFile => $scoreboard_file,
     SystemLog => $log_file,
+    TraceLog => $log_file,
+    Trace => 'DEFAULT:10 case:20',
 
     AuthUserFile => $auth_user_file,
     AuthGroupFile => $auth_group_file,
