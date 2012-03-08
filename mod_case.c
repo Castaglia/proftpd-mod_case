@@ -192,7 +192,7 @@ static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
   }
 
   if (strncmp(proto, "sftp", 5) == 0) {
-    /* We should only be handling SFTP SYMLINk and LINK requests here */
+    /* We should only be handling SFTP SYMLINK and LINK requests here. */
 
     cmd->arg = pstrcat(cmd->pool, src_path, "\t", dst_path, NULL);
 
@@ -715,8 +715,8 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
   return PR_DECLINED(cmd);
 }
 
-/* The SYMLINK/LINK SFTP requests are different enough to warrant their
- * own command handler.
+/* The SYMLINK/LINK SFTP requests are different enough to warrant their own
+ * command handler.
  */
 MODRET case_pre_link(cmd_rec *cmd) {
   config_rec *c;
@@ -813,15 +813,12 @@ MODRET case_pre_link(cmd_rec *cmd) {
     src_file, src_dir);
 
   res = case_have_file(cmd->tmp_pool, src_dir, src_file, file_len, &file_match);
-  if (res < 0) {
-    return PR_DECLINED(cmd);
-  }
-
-  if (res == TRUE &&
-      file_match != NULL) {
-    /* Replace the source path */
-    src_path = pdircat(cmd->tmp_pool, src_dir, file_match, NULL);
-    modified_arg = TRUE;
+  if (res == TRUE) {
+    if (file_match != NULL) {
+      /* Replace the source path */
+      src_path = pdircat(cmd->tmp_pool, src_dir, file_match, NULL);
+      modified_arg = TRUE;
+    }
 
   } else {
     pr_trace_msg(trace_channel, 9,
@@ -841,15 +838,12 @@ MODRET case_pre_link(cmd_rec *cmd) {
     dst_file, dst_dir);
 
   res = case_have_file(cmd->tmp_pool, dst_dir, dst_file, file_len, &file_match);
-  if (res < 0) {
-    return PR_DECLINED(cmd);
-  }
-
-  if (res == TRUE &&
-      file_match != NULL) {
-    /* Replace the destination path */
-    dst_path = pdircat(cmd->tmp_pool, dst_dir, file_match, NULL);
-    modified_arg = TRUE;
+  if (res == TRUE) {
+    if (file_match != NULL) {
+      /* Replace the destination path */
+      dst_path = pdircat(cmd->tmp_pool, dst_dir, file_match, NULL);
+      modified_arg = TRUE;
+    }
 
   } else {
     pr_trace_msg(trace_channel, 9,
@@ -864,6 +858,9 @@ MODRET case_pre_link(cmd_rec *cmd) {
 
   /* Overwrite the client-given paths. */
   if (modified_arg) {
+    pr_trace_msg(trace_channel, 9, "replacing %s paths with '%s' and '%s'",
+      cmd->argv[0], src_path, dst_path);
+
     case_replace_link_paths(cmd, proto, src_path, dst_path);
   }
 
@@ -1007,9 +1004,6 @@ static cmdtable case_cmdtab[] = {
   { PRE_CMD,	C_XCWD,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
   { PRE_CMD,	C_XMKD,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
   { PRE_CMD,	C_XRMD,	G_NONE, case_pre_cmd,	TRUE,	FALSE },
-
-  /* The following is for mod_copy's SITE CPFR and SITE CPTO commands. */
-  /* XXX Need to handle SITE CHMOD, SITE CHGRP as well */
 
   /* The following are SFTP requests */
   { PRE_CMD,	"LINK",		G_NONE, case_pre_link,	TRUE,	FALSE },
