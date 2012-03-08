@@ -15,9 +15,9 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Suite 500, Boston, MA 02110-1335, USA.
  *
- * This is mod_case, contrib software for proftpd 1.2 and above.
+ * This is mod_case, contrib software for proftpd 1.3.x and above.
  * For more information contact TJ Saunders <tj@castaglia.org>.
  *
  * $Id: mod_case.c,v 1.9 2011/05/04 21:50:41 tj Exp tj $
