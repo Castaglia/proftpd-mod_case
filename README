@@ -1,4 +1,0 @@
-The mod_case module for ProFTPD provides case-insensitivity support
-to FTP commands; useful for dealing with Windows FTP clients.
-
-For further module documentation, see mod_case.html.
