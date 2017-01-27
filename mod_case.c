@@ -1,7 +1,6 @@
 /*
  * ProFTPD: mod_case -- provides case-insensivity
- *
- * Copyright (c) 2004-2012 TJ Saunders
+ * Copyright (c) 2004-2017 TJ Saunders
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,8 +18,6 @@
  *
  * This is mod_case, contrib software for proftpd 1.3.x and above.
  * For more information contact TJ Saunders <tj@castaglia.org>.
- *
- * $Id: mod_case.c,v 1.9 2011/05/04 21:50:41 tj Exp tj $
  */
 
 #include "conf.h"
@@ -170,7 +167,7 @@ static void case_replace_copy_paths(cmd_rec *cmd, const char *proto,
     cmd->argc = argv->nelts;
 
     *((char **) push_array(argv)) = NULL;
-    cmd->argv = (char **) argv->elts;
+    cmd->argv = argv->elts;
 
     cmd->arg = pstrcat(cmd->pool, cmd->argv[1], " ", src_path, " ", dst_path,
       NULL);
@@ -277,7 +274,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
       cmd->argc = argv->nelts;
 
       *((char **) push_array(argv)) = NULL;
-      cmd->argv = (char **) argv->elts;
+      cmd->argv = argv->elts;
 
       pr_cmd_clear_cache(cmd);
 
@@ -338,16 +335,19 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
 }
 
 static int case_have_file(pool *p, const char *dir, const char *file,
-    size_t file_len, char **matched_file) {
+    size_t file_len, const char **matched_file) {
   DIR *dirh;
   struct dirent *dent;
-  char *file_match;
+  const char *file_match;
 
   /* Open the directory. */
   dirh = pr_fsio_opendir(dir);
   if (dirh == NULL) {
+    int xerrno = errno;
+
     (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-      "error opening directory '%s': %s", dir, strerror(errno));
+      "error opening directory '%s': %s", dir, strerror(xerrno));
+    errno = xerrno;
     return -1;
   }
 
@@ -370,7 +370,7 @@ static int case_have_file(pool *p, const char *dir, const char *file,
    * as an exact match and as a possible match.
    */
   dent = pr_fsio_readdir(dirh);
-  while (dent) {
+  while (dent != NULL) {
     pr_signals_handle();
 
     if (strncmp(dent->d_name, file, file_len + 1) == 0) {
@@ -408,10 +408,9 @@ static int case_have_file(pool *p, const char *dir, const char *file,
  */
 MODRET case_pre_copy(cmd_rec *cmd) {
   config_rec *c;
-  const char *proto;
+  const char *proto, *file_match = NULL;
   char *src_path, *src_dir = NULL, *src_file = NULL,
-    *dst_path, *dst_dir = NULL, *dst_file = NULL, *file_match = NULL,
-    *src_ptr, *dst_ptr;
+    *dst_path, *dst_dir = NULL, *dst_file = NULL, *src_ptr, *dst_ptr;
   size_t file_len;
   int modified_arg = FALSE, res;
 
@@ -557,9 +556,8 @@ MODRET case_pre_copy(cmd_rec *cmd) {
 
 MODRET case_pre_cmd(cmd_rec *cmd) {
   config_rec *c;
-  char *path = NULL, *dir = NULL, *file = NULL, *file_match = NULL,
-    *replace_path = NULL, *tmp;
-  const char *proto = NULL;
+  char *path = NULL, *dir = NULL, *file = NULL, *replace_path = NULL, *tmp;
+  const char *proto = NULL, *file_match = NULL;
   size_t file_len;
   int path_index = -1, res;
 
@@ -721,9 +719,8 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 MODRET case_pre_link(cmd_rec *cmd) {
   config_rec *c;
   char *arg = NULL, *src_path, *src_dir = NULL, *src_file = NULL,
-    *dst_path, *dst_dir = NULL, *dst_file = NULL, *file_match = NULL,
-    *src_ptr, *dst_ptr, *ptr;
-  const char *proto = NULL;
+    *dst_path, *dst_dir = NULL, *dst_file = NULL, *src_ptr, *dst_ptr, *ptr;
+  const char *proto = NULL, *file_match = NULL;
   size_t file_len;
   int modified_arg = FALSE, res;
 
@@ -891,14 +888,15 @@ MODRET set_caseengine(cmd_rec *cmd) {
 
 /* usage: CaseIgnore on|off|cmd-list */
 MODRET set_caseignore(cmd_rec *cmd) {
-  int bool, argc;
+  unsigned int argc;
+  int ignore = FALSE;
   char **argv;
   config_rec *c;
 
   CHECK_CONF(cmd, CONF_ROOT|CONF_VIRTUAL|CONF_GLOBAL|CONF_ANON|CONF_DIR);
   CHECK_ARGS(cmd, 1);
 
-  bool = get_boolean(cmd, 1);
+  ignore = get_boolean(cmd, 1);
 
   c = add_config_param(cmd->argv[0], 2, NULL, NULL);
   c->flags |= CF_MERGEDOWN_MULTI;
@@ -906,14 +904,14 @@ MODRET set_caseignore(cmd_rec *cmd) {
   c->argv[0] = pcalloc(c->pool, sizeof(unsigned int));
   *((unsigned int *) c->argv[0]) = 1;
 
-  if (bool != -1) {
-    *((unsigned int *) c->argv[0]) = bool;
+  if (ignore != -1) {
+    *((unsigned int *) c->argv[0]) = ignore;
     return PR_HANDLED(cmd);
   }
 
   /* Parse the parameter as a command list. */
   argc = cmd->argc-1;
-  argv = cmd->argv;
+  argv = (char **) cmd->argv;
 
   c->argv[1] = pcalloc(c->pool, sizeof(array_header *));
   *((array_header **) c->argv[1]) = pr_expr_create(c->pool, &argc, argv);
