@@ -1,6 +1,6 @@
 /*
  * ProFTPD: mod_case -- provides case-insensivity
- * Copyright (c) 2004-2017 TJ Saunders
+ * Copyright (c) 2004-2021 TJ Saunders
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -306,7 +306,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
         cmd->argc);
       for (i = 0; i < cmd->argc; i++) {
         pr_trace_msg(trace_channel, 19, "replacing path: cmd->argv[%u] = '%s'",
-          i, cmd->argv[i]);
+          i, (char *) cmd->argv[i]);
       }
     }
 
@@ -612,8 +612,8 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
         if (cmd->argc < 4) {
           pr_trace_msg(trace_channel, 3,
-            "ignoring SITE %s: not enough parameters (%d)", cmd->argv[1],
-            cmd->argc - 2);
+            "ignoring SITE %s: not enough parameters (%d)",
+            (char *) cmd->argv[1], cmd->argc - 2);
           return PR_DECLINED(cmd);
         }
 
@@ -630,8 +630,8 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
         if (cmd->argc < 3) {
           pr_trace_msg(trace_channel, 3,
-            "ignoring SITE %s: not enough parameters (%d)", cmd->argv[1],
-            cmd->argc - 2);
+            "ignoring SITE %s: not enough parameters (%d)",
+            (char *) cmd->argv[1], cmd->argc - 2);
           return PR_DECLINED(cmd);
         }
 
@@ -645,7 +645,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
       } else {
         (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-          "unsupported SITE %s command, ignoring", cmd->argv[1]);
+          "unsupported SITE %s command, ignoring", (char *) cmd->argv[1]);
         return PR_DECLINED(cmd);
       }
 
@@ -754,7 +754,7 @@ MODRET case_pre_link(cmd_rec *cmd) {
   if (ptr == NULL) {
     /* Malformed SFTP SYMLINK/LINK cmd_rec. */
     (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-      "malformed SFTP %s request, ignoring", cmd->argv[0]);
+      "malformed SFTP %s request, ignoring", (char *) cmd->argv[0]);
     return PR_DECLINED(cmd);
   }
 
@@ -856,7 +856,7 @@ MODRET case_pre_link(cmd_rec *cmd) {
   /* Overwrite the client-given paths. */
   if (modified_arg) {
     pr_trace_msg(trace_channel, 9, "replacing %s paths with '%s' and '%s'",
-      cmd->argv[0], src_path, dst_path);
+      (char *) cmd->argv[0], src_path, dst_path);
 
     case_replace_link_paths(cmd, proto, src_path, dst_path);
   }
