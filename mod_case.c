@@ -237,20 +237,19 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *repla
       path = pstrcat(cmd->pool, replace_path, NULL);
 
       /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
-      argv = make_array(cmd->pool, 2, sizeof(char*));
-      *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
+      argv = make_array(cmd->pool, 2, sizeof(char *));
+      *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
 
       if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
         if (strncmp(cmd->argv[1], "CHGRP", 6) == 0 ||
-          strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
+            strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
 
-          *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
-          *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[2]);
+          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
+          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[2]);
 
-        }
-        else if (strncmp(cmd->argv[1], "CPFR", 5) == 0 ||
-          strncmp(cmd->argv[1], "CPTO", 5) == 0) {
-          *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
+        } else if (strncmp(cmd->argv[1], "CPFR", 5) == 0 ||
+                   strncmp(cmd->argv[1], "CPTO", 5) == 0) {
+          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
         }
       }
 
@@ -263,13 +262,13 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *repla
       while (arg != NULL) {
         pr_signals_handle();
 
-        *((char**)push_array(argv)) = pstrdup(cmd->pool, arg);
+        *((char **) push_array(argv)) = pstrdup(cmd->pool, arg);
         arg = pr_str_get_word(&dup_path, flags);
       }
 
       cmd->argc = argv->nelts;
 
-      *((char**)push_array(argv)) = NULL;
+      *((char **) push_array(argv)) = NULL;
       cmd->argv = argv->elts;
 
       pr_cmd_clear_cache(cmd);
@@ -299,7 +298,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *repla
       register unsigned int i;
 
       pr_trace_msg(trace_channel, 19, "replacing path: cmd->argc = %d",
-          cmd->argc);
+        cmd->argc);
       for (i = 0; i < cmd->argc; i++) {
         pr_trace_msg(trace_channel, 19, "replacing path: cmd->argv[%u] = '%s'",
             i, (char*) cmd->argv[i]);
@@ -741,7 +740,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
         if (cmd->argc < 4) {
           pr_trace_msg(trace_channel, 3,
             "ignoring SITE %s: not enough parameters (%d)",
-            (char*) cmd->argv[1], cmd->argc - 2);
+            (char *) cmd->argv[1], cmd->argc - 2);
           return PR_DECLINED(cmd);
         }
 
@@ -773,7 +772,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
       } else {
         (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-          "unsupported SITE %s command, ignoring", (char*) cmd->argv[1]);
+          "unsupported SITE %s command, ignoring", (char *) cmd->argv[1]);
         return PR_DECLINED(cmd);
       }
 
@@ -849,7 +848,7 @@ MODRET case_pre_link(cmd_rec *cmd) {
   if (ptr == NULL) {
     /* Malformed SFTP SYMLINK/LINK cmd_rec. */
     (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-      "malformed SFTP %s request, ignoring", (char*) cmd->argv[0]);
+      "malformed SFTP %s request, ignoring", (char *) cmd->argv[0]);
     return PR_DECLINED(cmd);
   }
 
@@ -951,7 +950,7 @@ MODRET case_pre_link(cmd_rec *cmd) {
   /* Overwrite the client-given paths. */
   if (modified_arg) {
     pr_trace_msg(trace_channel, 9, "replacing %s paths with '%s' and '%s'",
-      (char*) cmd->argv[0], src_path, dst_path);
+      (char *) cmd->argv[0], src_path, dst_path);
 
     case_replace_link_paths(cmd, proto, src_path, dst_path);
   }
