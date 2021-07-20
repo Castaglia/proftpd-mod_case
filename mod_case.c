@@ -202,266 +202,131 @@ static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
   return;
 }
 
-//static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
-//    const char *file, int path_index) {
+static void case_replace_path(cmd_rec *cmd, const char *proto, const char *replace_path, int path_index) {
+  if (strncmp(proto, "ftp", 4) == 0 ||
+      strncmp(proto, "ftps", 5) == 0) {
 
-//  /* Minor nit: if dir is "//", then reduce it to just "/". */
-//  if (strcmp(dir, "//") == 0) {
-//    dir = pstrdup(cmd->tmp_pool, "/");
-//  }
+    /* Special handling of LIST/NLST/STAT commands, which can take options */
+    if (pr_cmd_cmp(cmd, PR_CMD_LIST_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_NLST_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_STAT_ID) == 0) {
 
-//  if (strncmp(proto, "ftp", 4) == 0 ||
-//      strncmp(proto, "ftps", 5) == 0) {
+      /* XXX Be sure to overwrite the entire cmd->argv array, not just
+       * cmd->arg.
+       */
 
-//    /* Special handling of LIST/NLST/STAT commands, which can take options */
-//    if (pr_cmd_cmp(cmd, PR_CMD_LIST_ID) == 0 ||
-//        pr_cmd_cmp(cmd, PR_CMD_NLST_ID) == 0 ||
-//        pr_cmd_cmp(cmd, PR_CMD_STAT_ID) == 0) {
+      if (path_index > 0) {
+        char *arg;
 
-//      /* XXX Be sure to overwrite the entire cmd->argv array, not just
-//       * cmd->arg.
-//       */
+        arg = pstrdup(cmd->tmp_pool, cmd->arg);
+        arg[path_index] = '\0';
+        arg = pstrcat(cmd->pool, arg, replace_path, NULL);
+        cmd->arg = arg;
 
-//      if (path_index > 0) {
-//        char *arg;
+      }
+      else {
+        cmd->arg = pstrcat(cmd->pool, replace_path, NULL);
+      }
 
-//        arg = pstrdup(cmd->tmp_pool, cmd->arg);
-//        arg[path_index] = '\0';
-//        arg = pstrcat(cmd->pool, arg, dir, file, NULL);
-//        cmd->arg = arg;
+    }
+    else {
+      char *arg, *dup_path, *path;
+      array_header *argv;
+      int flags = PR_STR_FL_PRESERVE_COMMENTS;
 
-//      } else {
-//        cmd->arg = pstrcat(cmd->pool, dir, file, NULL);
-//      }
+      path = pstrcat(cmd->pool, replace_path, NULL);
 
-//    } else {
-//      char *arg, *dup_path, *path;
-//      array_header *argv;
-//      int flags = PR_STR_FL_PRESERVE_COMMENTS;
+      /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
+      argv = make_array(cmd->pool, 2, sizeof(char*));
+      *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
 
-//      path = pstrcat(cmd->pool, dir, file, NULL);
+      if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
+        if (strncmp(cmd->argv[1], "CHGRP", 6) == 0 ||
+          strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
 
-//      /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
-//      argv = make_array(cmd->pool, 2, sizeof(char *));
-//      *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
-
-//      if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
-
-//        if (strncmp(cmd->argv[1], "CHGRP", 6) == 0 ||
-//            strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
-
-//          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
-//          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[2]);
-
-//        } else if (strncmp(cmd->argv[1], "CPFR", 5) == 0 ||
-//                   strncmp(cmd->argv[1], "CPTO", 5) == 0) {
-//          *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
-//        }
-//      }
-
-//      /* Handle spaces in the new path properly by breaking them up and adding
-//       * them into the argv.
-//       */
-//      dup_path = pstrdup(cmd->tmp_pool, path);
-
-//      arg = pr_str_get_word(&dup_path, flags);
-//      while (arg != NULL) {
-//        pr_signals_handle();
-
-//        *((char **) push_array(argv)) = pstrdup(cmd->pool, arg);
-//        arg = pr_str_get_word(&dup_path, flags);
-//      }
-
-//      cmd->argc = argv->nelts;
-
-//      *((char **) push_array(argv)) = NULL;
-//      cmd->argv = argv->elts;
-
-//      pr_cmd_clear_cache(cmd);
-
-//      /* In the case of many commands, we also need to overwrite cmd->arg. */
-//      if (pr_cmd_cmp(cmd, PR_CMD_APPE_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_CWD_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_MDTM_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_MLSD_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_MLST_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_RETR_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_RNFR_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_RNTO_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_SIZE_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_XCWD_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_XMKD_ID) == 0 ||
-//          pr_cmd_cmp(cmd, PR_CMD_XRMD_ID) == 0) {
-//        cmd->arg = path;
-//      }
-//    }
-
-//    if (pr_trace_get_level(trace_channel) >= 19) {
-//      register unsigned int i;
-
-//      pr_trace_msg(trace_channel, 19, "replacing path: cmd->argc = %d",
-//        cmd->argc);
-//      for (i = 0; i < cmd->argc; i++) {
-//        pr_trace_msg(trace_channel, 19, "replacing path: cmd->argv[%u] = '%s'",
-//          i, (char*) cmd->argv[i]);
-//      }
-//    }
-
-//    return;
-//  }
-
-//  if (strncmp(proto, "sftp", 5) == 0) {
-
-//    /* Main SFTP commands */
-//    if (pr_cmd_cmp(cmd, PR_CMD_RETR_ID) == 0 ||
-//        pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
-//        pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
-//        pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
-//        pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
-//        pr_cmd_strcmp(cmd, "LSTAT") == 0 ||
-//        pr_cmd_strcmp(cmd, "OPENDIR") == 0 ||
-//        pr_cmd_strcmp(cmd, "READLINK") == 0 ||
-//        pr_cmd_strcmp(cmd, "REALPATH") == 0 ||
-//        pr_cmd_strcmp(cmd, "SETSTAT") == 0 ||
-//        pr_cmd_strcmp(cmd, "STAT") == 0) {
-//      cmd->arg = pstrcat(cmd->pool, dir, file, NULL);
-//    }
-
-//    return;
-//  }
-//}
-
-static void case_replace_path(cmd_rec* cmd, const char* proto, const char* replace_path, int path_index) {
-    if (strncmp(proto, "ftp", 4) == 0 ||
-        strncmp(proto, "ftps", 5) == 0) {
-
-        /* Special handling of LIST/NLST/STAT commands, which can take options */
-        if (pr_cmd_cmp(cmd, PR_CMD_LIST_ID) == 0 ||
-            pr_cmd_cmp(cmd, PR_CMD_NLST_ID) == 0 ||
-            pr_cmd_cmp(cmd, PR_CMD_STAT_ID) == 0) {
-
-            /* XXX Be sure to overwrite the entire cmd->argv array, not just
-             * cmd->arg.
-             */
-
-            if (path_index > 0) {
-                char* arg;
-
-                arg = pstrdup(cmd->tmp_pool, cmd->arg);
-                arg[path_index] = '\0';
-                arg = pstrcat(cmd->pool, arg, replace_path, NULL);
-                cmd->arg = arg;
-
-            }
-            else {
-                cmd->arg = pstrcat(cmd->pool, replace_path, NULL);
-            }
+          *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
+          *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[2]);
 
         }
-        else {
-            char* arg, * dup_path, * path;
-            array_header* argv;
-            int flags = PR_STR_FL_PRESERVE_COMMENTS;
-
-            path = pstrcat(cmd->pool, replace_path, NULL);
-
-            /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
-            argv = make_array(cmd->pool, 2, sizeof(char*));
-            *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
-
-            if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
-
-                if (strncmp(cmd->argv[1], "CHGRP", 6) == 0 ||
-                    strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
-
-                    *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
-                    *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[2]);
-
-                }
-                else if (strncmp(cmd->argv[1], "CPFR", 5) == 0 ||
-                    strncmp(cmd->argv[1], "CPTO", 5) == 0) {
-                    *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
-                }
-            }
-
-            /* Handle spaces in the new path properly by breaking them up and adding
-             * them into the argv.
-             */
-            dup_path = pstrdup(cmd->tmp_pool, path);
-
-            arg = pr_str_get_word(&dup_path, flags);
-            while (arg != NULL) {
-                pr_signals_handle();
-
-                *((char**)push_array(argv)) = pstrdup(cmd->pool, arg);
-                arg = pr_str_get_word(&dup_path, flags);
-            }
-
-            cmd->argc = argv->nelts;
-
-            *((char**)push_array(argv)) = NULL;
-            cmd->argv = argv->elts;
-
-            pr_cmd_clear_cache(cmd);
-
-            /* In the case of many commands, we also need to overwrite cmd->arg. */
-            if (pr_cmd_cmp(cmd, PR_CMD_APPE_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_CWD_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_MDTM_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_MLSD_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_MLST_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_RETR_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_RNFR_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_RNTO_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_SIZE_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_XCWD_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_XMKD_ID) == 0 ||
-                pr_cmd_cmp(cmd, PR_CMD_XRMD_ID) == 0) {
-                cmd->arg = path;
-            }
+        else if (strncmp(cmd->argv[1], "CPFR", 5) == 0 ||
+          strncmp(cmd->argv[1], "CPTO", 5) == 0) {
+          *((char**)push_array(argv)) = pstrdup(cmd->pool, cmd->argv[1]);
         }
+      }
 
-        if (pr_trace_get_level(trace_channel) >= 19) {
-            register unsigned int i;
+      /* Handle spaces in the new path properly by breaking them up and adding
+       * them into the argv.
+       */
+      dup_path = pstrdup(cmd->tmp_pool, path);
 
-            pr_trace_msg(trace_channel, 19, "replacing path: cmd->argc = %d",
-                cmd->argc);
-            for (i = 0; i < cmd->argc; i++) {
-                pr_trace_msg(trace_channel, 19, "replacing path: cmd->argv[%u] = '%s'",
-                    i, (char*) cmd->argv[i]);
-            }
-        }
+      arg = pr_str_get_word(&dup_path, flags);
+      while (arg != NULL) {
+        pr_signals_handle();
 
-        return;
+        *((char**)push_array(argv)) = pstrdup(cmd->pool, arg);
+        arg = pr_str_get_word(&dup_path, flags);
+      }
+
+      cmd->argc = argv->nelts;
+
+      *((char**)push_array(argv)) = NULL;
+      cmd->argv = argv->elts;
+
+      pr_cmd_clear_cache(cmd);
+
+      /* In the case of many commands, we also need to overwrite cmd->arg. */
+      if (pr_cmd_cmp(cmd, PR_CMD_APPE_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_CWD_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_MDTM_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_MLSD_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_MLST_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_RETR_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_RNFR_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_RNTO_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_SIZE_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_XCWD_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_XMKD_ID) == 0 ||
+          pr_cmd_cmp(cmd, PR_CMD_XRMD_ID) == 0) {
+        cmd->arg = path;
+      }
     }
 
-    if (strncmp(proto, "sftp", 5) == 0) {
+    if (pr_trace_get_level(trace_channel) >= 19) {
+      register unsigned int i;
 
-        /* Main SFTP commands */
-        if (pr_cmd_cmp(cmd, PR_CMD_RETR_ID) == 0 ||
-            pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
-            pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
-            pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
-            pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
-            pr_cmd_strcmp(cmd, "LSTAT") == 0 ||
-            pr_cmd_strcmp(cmd, "OPENDIR") == 0 ||
-            pr_cmd_strcmp(cmd, "READLINK") == 0 ||
-            pr_cmd_strcmp(cmd, "REALPATH") == 0 ||
-            pr_cmd_strcmp(cmd, "SETSTAT") == 0 ||
-            pr_cmd_strcmp(cmd, "STAT") == 0) {
-            cmd->arg = pstrcat(cmd->pool, replace_path, NULL);
-        }
-
-        return;
+      pr_trace_msg(trace_channel, 19, "replacing path: cmd->argc = %d",
+          cmd->argc);
+      for (i = 0; i < cmd->argc; i++) {
+        pr_trace_msg(trace_channel, 19, "replacing path: cmd->argv[%u] = '%s'",
+            i, (char*) cmd->argv[i]);
+      }
     }
+
+    return;
+  }
+
+  if (strncmp(proto, "sftp", 5) == 0) {
+    /* Main SFTP commands */
+    if (pr_cmd_cmp(cmd, PR_CMD_RETR_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
+        pr_cmd_strcmp(cmd, "LSTAT") == 0 ||
+        pr_cmd_strcmp(cmd, "OPENDIR") == 0 ||
+        pr_cmd_strcmp(cmd, "READLINK") == 0 ||
+        pr_cmd_strcmp(cmd, "REALPATH") == 0 ||
+        pr_cmd_strcmp(cmd, "SETSTAT") == 0 ||
+        pr_cmd_strcmp(cmd, "STAT") == 0) {
+      cmd->arg = pstrcat(cmd->pool, replace_path, NULL);
+    }
+
+    return;
+  }
 }
 
 static int case_have_file(pool *p, const char *dir, const char *file,
@@ -530,134 +395,138 @@ static int case_have_file(pool *p, const char *dir, const char *file,
   return FALSE;
 }
 
-static int find_path_case_insensitive(pool* p, char* path, char** replace_path) {
-    char* dir = NULL, * file = NULL, * matched_file = NULL, * tmp;
-    DIR* dirh;
-    struct dirent* dent;
-    const char* file_match; //the file to match
-    size_t file_len;
-    int path_found = FALSE;
+static int find_path_case_insensitive(pool *p, char *path, char **replace_path) {
+  char *dir = NULL, *file = NULL, *matched_file = NULL, *tmp;
+  DIR *dirh;
+  struct dirent *dent;
+  const char *file_match; /* The file to match */
+  size_t file_len;
+  int path_found = FALSE;
 
-    /* Separate the path into directory and file components. */
-    tmp = strrchr(path, '/');
-    if (tmp == NULL) {
-        dir = ".";
-        file = path;
+  /* Separate the path into directory and file components. */
+  tmp = strrchr(path, '/');
+  if (tmp == NULL) {
+    dir = ".";
+    file = path;
+
+  }
+  else {
+    if (tmp != path) {
+      *tmp++ = '\0';
+      dir = path;
+      file = tmp;
 
     }
     else {
-        if (tmp != path) {
-            *tmp++ = '\0';
-            dir = path;
-            file = tmp;
-
-        }
-        else {
-            /* Handle the case where the path is "/path". */
-            dir = "/";
-            file = tmp + 1;
-        }
+      /* Handle the case where the path is "/path". */
+      dir = "/";
+      file = tmp + 1;
     }
+  }
 
-    file_len = strlen(file);
+  file_len = strlen(file);
 
-    pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
-        file, dir);
+  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
+               file, dir);
 
-    /* Open the directory. */
-    dirh = pr_fsio_opendir(dir);
-    if (dirh == NULL) {
+  /* Open the directory. */
+  dirh = pr_fsio_opendir(dir);
+  if (dirh == NULL) {
+    int xerrno = errno;
+
+    (void)pr_log_writefile(case_logfd, MOD_CASE_VERSION,
+        "error opening directory '%s': %s", dir, strerror(xerrno));
+    errno = xerrno;
+    path_found = -1;
+  }
+
+  if (path_found == -1) {
+    char *replace_dir = NULL;
+    path_found = find_path_case_insensitive(p, dir, &replace_dir);
+
+    if (path_found == TRUE) {
+      dir = replace_dir;
+      dirh = pr_fsio_opendir(dir);
+
+      if (dirh == NULL) {
         int xerrno = errno;
 
         (void)pr_log_writefile(case_logfd, MOD_CASE_VERSION,
             "error opening directory '%s': %s", dir, strerror(xerrno));
         errno = xerrno;
-        //return -1;
-        path_found = -1;
+        return -1;
+      }
+    }
+    else
+    {
+      return -1;
+    }
+  }
+
+  /* Escape any existing fnmatch(3) characters in the file name. */
+  file_match = pstrdup(p, file);
+
+  if (strchr(file_match, '?') != NULL) {
+    file_match = sreplace(p, file_match, "?", "\\?", NULL);
+  }
+
+  if (strchr(file_match, '*') != NULL) {
+    file_match = sreplace(p, file_match, "*", "\\*", NULL);
+  }
+
+  if (strchr(file_match, '[') != NULL) {
+    file_match = sreplace(p, file_match, "[", "\\[", NULL);
+  }
+
+  /* For each file in the directory, check it against the given name, both
+   * as an exact match and as a possible match.
+   */
+  dent = pr_fsio_readdir(dirh);
+  while (dent != NULL) {
+    pr_signals_handle();
+
+    if (strncmp(dent->d_name, file, file_len + 1) == 0) {
+      (void)pr_log_writefile(case_logfd, MOD_CASE_VERSION,
+          "found exact match");
+      pr_fsio_closedir(dirh);
+
+      if (path_found == TRUE) {
+        matched_file = file;
+        break;
+      }
+      else {
+        replace_path = NULL;
+        return TRUE;
+      }
     }
 
-    if (path_found == -1) {
-        char* replace_dir = NULL;
-        path_found = find_path_case_insensitive(p, dir, &replace_dir);
+    if (pr_fnmatch(file_match, dent->d_name, PR_FNM_CASEFOLD) == 0) {
+      (void)pr_log_writefile(case_logfd, MOD_CASE_VERSION,
+          "found case-insensitive match '%s' for '%s'", dent->d_name, file_match);
+      pr_fsio_closedir(dirh);
 
-        if (path_found == TRUE) {
-            dir = replace_dir;
-            dirh = pr_fsio_opendir(dir);
-
-            if (dirh == NULL) {
-                int xerrno = errno;
-
-                (void)pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-                    "error opening directory '%s': %s", dir, strerror(xerrno));
-                errno = xerrno;
-                return -1;
-            }
-        }
-        else
-        {
-            return -1;
-        }
+      matched_file = pstrdup(p, dent->d_name);
+      path_found = TRUE;
+      break;
     }
 
-    /* Escape any existing fnmatch(3) characters in the file name. */
-    file_match = pstrdup(p, file);
-
-    if (strchr(file_match, '?') != NULL) {
-        file_match = sreplace(p, file_match, "?", "\\?", NULL);
-    }
-
-    if (strchr(file_match, '*') != NULL) {
-        file_match = sreplace(p, file_match, "*", "\\*", NULL);
-    }
-
-    if (strchr(file_match, '[') != NULL) {
-        file_match = sreplace(p, file_match, "[", "\\[", NULL);
-    }
-
-    /* For each file in the directory, check it against the given name, both
-     * as an exact match and as a possible match.
-     */
     dent = pr_fsio_readdir(dirh);
-    while (dent != NULL) {
-        pr_signals_handle();
+  }
 
-        if (strncmp(dent->d_name, file, file_len + 1) == 0) {
-            (void)pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-                "found exact match");
-            pr_fsio_closedir(dirh);
+  if (path_found == FALSE) {
+    /* Close the directory. */
+    pr_fsio_closedir(dirh);
 
-            replace_path = NULL;
-            return TRUE;
-        }
+    return FALSE;
+  }
 
-        if (pr_fnmatch(file_match, dent->d_name, PR_FNM_CASEFOLD) == 0) {
-            (void)pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-                "found case-insensitive match '%s' for '%s'", dent->d_name, file_match);
-            pr_fsio_closedir(dirh);
+  /* Overwrite the client-given path. */
+  *replace_path = tmp ? pstrcat(p, dir, "/", NULL) : "";
+  *replace_path = pdircat(p, *replace_path, matched_file, NULL);
+  pr_trace_msg(trace_channel, 9, "replacing path '%s' with '%s'",
+               path, *replace_path);
 
-            matched_file = pstrdup(p, dent->d_name);
-            //return TRUE;
-            path_found = TRUE;
-            break;
-        }
-
-        dent = pr_fsio_readdir(dirh);
-    }
-
-    if (path_found == FALSE) {
-        /* Close the directory. */
-        pr_fsio_closedir(dirh);
-
-        return FALSE;
-    }
-
-    /* Overwrite the client-given path. */
-    *replace_path = tmp ? pstrcat(p, dir, "/", NULL) : "";
-    *replace_path = pdircat(p, *replace_path, matched_file, NULL);
-    pr_trace_msg(trace_channel, 9, "replacing path '%s' with '%s'",
-        path, *replace_path);
-
-    return TRUE;
+  return TRUE;
 }
 
 /* Command handlers
@@ -816,9 +685,8 @@ MODRET case_pre_copy(cmd_rec *cmd) {
 
 MODRET case_pre_cmd(cmd_rec *cmd) {
   config_rec *c;
-  char *path = NULL, *replace_path = NULL; //, *dir = NULL, *file = NULL, *replace_path = NULL, *tmp;
-  const char *proto = NULL; //, *file_match = NULL;  //******confusing variable names - here is matched file, but in other is file to match.
-  //size_t file_len;
+  char *path = NULL, *replace_path = NULL;
+  const char *proto = NULL;
   int path_index = -1, res;
 
   if (!case_engine) {
@@ -916,32 +784,6 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
   pr_trace_msg(trace_channel, 9, "checking client-sent path '%s'", path);
 
-  ///* Separate the path into directory and file components. */
-  //tmp = strrchr(path, '/');
-  //if (tmp == NULL) {
-  //  dir = ".";
-  //  file = path;
-
-  //} else {
-  //  if (tmp != path) {
-  //    *tmp++ = '\0';
-  //    dir = path;
-  //    file = tmp;
-
-  //  } else {
-  //    /* Handle the case where the path is "/path". */
-  //    dir = "/";
-  //    file = tmp + 1;
-  //  }
-  //}
-
-  //file_len = strlen(file);
-
-  //pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
-  //  file, dir);
-
-  //res = case_have_file(cmd->tmp_pool, dir, file, file_len, &file_match);
-
   res = find_path_case_insensitive(cmd->tmp_pool, path, &replace_path);
   if (res < 0) {
     return PR_DECLINED(cmd);
@@ -955,20 +797,12 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
   }
 
   /* We found a match for the given file. */
-  //if (file_match == NULL) {
   if (replace_path == NULL) {
     /* Exact match found; nothing more to do. */
     return PR_DECLINED(cmd);
   }
 
-  ///* Overwrite the client-given path. */
-  //replace_path = tmp ? pstrcat(cmd->tmp_pool, dir, "/", NULL) : "";
-  //replace_path = pdircat(cmd->tmp_pool, replace_path, file_match, NULL);
-  //pr_trace_msg(trace_channel, 9, "replacing path '%s' with '%s'",
-  //  path, replace_path);
-
-  //case_replace_path(cmd, proto,
-  //  tmp ? pstrcat(cmd->pool, dir, "/", NULL) : "", file_match, path_index);
+  /* Overwrite the client-given path. */
   case_replace_path(cmd, proto, replace_path, path_index);
 
   return PR_DECLINED(cmd);
