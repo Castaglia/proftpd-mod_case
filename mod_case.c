@@ -301,7 +301,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *repla
         cmd->argc);
       for (i = 0; i < cmd->argc; i++) {
         pr_trace_msg(trace_channel, 19, "replacing path: cmd->argv[%u] = '%s'",
-            i, (char*) cmd->argv[i]);
+          i, (char *) cmd->argv[i]);
       }
     }
 
@@ -758,7 +758,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
         if (cmd->argc < 3) {
           pr_trace_msg(trace_channel, 3,
             "ignoring SITE %s: not enough parameters (%d)",
-            (char*) cmd->argv[1], cmd->argc - 2);
+            (char *) cmd->argv[1], cmd->argc - 2);
           return PR_DECLINED(cmd);
         }
 
