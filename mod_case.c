@@ -224,13 +224,11 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *repla
         arg = pstrcat(cmd->pool, arg, replace_path, NULL);
         cmd->arg = arg;
 
-      }
-      else {
+      } else {
         cmd->arg = pstrcat(cmd->pool, replace_path, NULL);
       }
 
-    }
-    else {
+    } else {
       char *arg, *dup_path, *path;
       array_header *argv;
       int flags = PR_STR_FL_PRESERVE_COMMENTS;
@@ -409,15 +407,13 @@ static int find_path_case_insensitive(pool *p, char *path, char **replace_path) 
     dir = ".";
     file = path;
 
-  }
-  else {
+  } else {
     if (tmp != path) {
       *tmp++ = '\0';
       dir = path;
       file = tmp;
 
-    }
-    else {
+    } else {
       /* Handle the case where the path is "/path". */
       dir = "/";
       file = tmp + 1;
@@ -456,9 +452,8 @@ static int find_path_case_insensitive(pool *p, char *path, char **replace_path) 
         errno = xerrno;
         return -1;
       }
-    }
-    else
-    {
+
+    } else {
       return -1;
     }
   }
@@ -493,8 +488,8 @@ static int find_path_case_insensitive(pool *p, char *path, char **replace_path) 
       if (path_found == TRUE) {
         matched_file = file;
         break;
-      }
-      else {
+
+      } else {
         replace_path = NULL;
         return TRUE;
       }
