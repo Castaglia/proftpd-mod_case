@@ -48,65 +48,71 @@ sub list_tests {
   return testsuite_get_runnable_tests($TESTS);
 }
 
-sub caseignore_site_copy {
-  my $self = shift;
-  my $tmpdir = $self->{tmpdir};
+# Support functions
 
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
+sub create_test_dir {
+  my $setup = shift;
+  my $sub_dir = shift;
 
-  my $log_file = test_get_logfile();
+  mkpath($sub_dir);
 
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
+  # Make sure that, if we're running as root, that the sub directory has
+  # permissions/privs set for the account we create
+  if ($< == 0) {
+    unless (chmod(0755, $sub_dir)) {
+      die("Can't set perms on $sub_dir to 0755: $!");
+    }
 
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
+    unless (chown($setup->{uid}, $setup->{gid}, $sub_dir)) {
+      die("Can't set owner of $sub_dir to $setup->{uid}/$setup->{gid}: $!");
+    }
+  }
+}
 
-  my $src_file = File::Spec->rel2abs("$home_dir/src.txt");
-  if (open(my $fh, "> $src_file")) {
+sub create_test_file {
+  my $setup = shift;
+  my $test_file = shift;
+
+  if (open(my $fh, "> $test_file")) {
     print $fh "Hello, World!\n";
-
     unless (close($fh)) {
-      die("Can't write $src_file: $!");
+      die("Can't write $test_file: $!");
+    }
+
+    # Make sure that, if we're running as root, that the test file has
+    # permissions/privs set for the account we create
+    if ($< == 0) {
+      unless (chown($setup->{uid}, $setup->{gid}, $test_file)) {
+        die("Can't set owner of $test_file to $setup->{uid}/$setup->{gid}: $!");
+      }
     }
 
   } else {
-    die("Can't open $src_file: $!");
+    die("Can't open $test_file: $!");
   }
+}
 
-  my $dst_file = File::Spec->rel2abs("$home_dir/src.txt");
+# Test cases
 
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir, $src_file)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
+sub caseignore_site_copy {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
 
-    unless (chown($uid, $gid, $home_dir, $src_file)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
+  my $src_file = File::Spec->rel2abs("$setup->{home_dir}/src.txt");
+  create_test_file($setup, $src_file);
 
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $dst_file = File::Spec->rel2abs("$setup->{home_dir}/src.txt");
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
     Trace => 'DEFAULT:10 case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -115,7 +121,7 @@ sub caseignore_site_copy {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -124,7 +130,8 @@ sub caseignore_site_copy {
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -142,26 +149,22 @@ sub caseignore_site_copy {
   if ($pid) {
     eval {
       my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
-      $client->login($user, $passwd);
+      $client->login($setup->{user}, $setup->{passwd});
 
-      my ($resp_code, $resp_msg);
+      my ($resp_code, $resp_msg) = $client->site('COPY', 'SrC.txt', 'dst.txt');
 
-      ($resp_code, $resp_msg) = $client->site('COPY', 'SrC.txt', 'dst.txt');
-
-      my $expected;
-      $expected = 200;
+      my $expected = 200;
       $self->assert($expected == $resp_code,
-        test_msg("Expected $expected, got $resp_code"));
+        test_msg("Expected response code $expected, got $resp_code"));
 
       $expected = "SITE COPY command successful";
       $self->assert($expected eq $resp_msg,
-        test_msg("Expected '$expected', got '$resp_msg'"));
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
 
       unless (-f $dst_file) {
         die("File $dst_file does not exist as expected");
       }
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -170,7 +173,7 @@ sub caseignore_site_copy {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -180,79 +183,31 @@ sub caseignore_site_copy {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    test_append_logfile($log_file, $ex);
-    unlink($log_file);
-
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_site_cpfr_cpto {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
 
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
+  my $src_file = File::Spec->rel2abs("$setup->{home_dir}/src.txt");
+  create_test_file($setup, $src_file);
 
-  my $log_file = test_get_logfile();
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  my $src_file = File::Spec->rel2abs("$home_dir/src.txt");
-  if (open(my $fh, "> $src_file")) {
-    print $fh "Hello, World!\n";
-
-    unless (close($fh)) {
-      die("Can't write $src_file: $!");
-    }
-
-  } else {
-    die("Can't open $src_file: $!");
-  }
-
-  my $dst_file = File::Spec->rel2abs("$home_dir/src.txt");
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir, $src_file)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir, $src_file)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $dst_file = File::Spec->rel2abs("$setup->{home_dir}/src.txt");
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
     Trace => 'DEFAULT:10 case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -261,7 +216,7 @@ sub caseignore_site_cpfr_cpto {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -270,7 +225,8 @@ sub caseignore_site_cpfr_cpto {
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -288,36 +244,32 @@ sub caseignore_site_cpfr_cpto {
   if ($pid) {
     eval {
       my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
-      $client->login($user, $passwd);
+      $client->login($setup->{user}, $setup->{passwd});
 
-      my ($resp_code, $resp_msg);
+      my ($resp_code, $resp_msg) = $client->site('CPFR', 'SrC.txt');
 
-      ($resp_code, $resp_msg) = $client->site('CPFR', 'SrC.txt');
-
-      my $expected;
-      $expected = 350;
+      my $expected = 350;
       $self->assert($expected == $resp_code,
-        test_msg("Expected $expected, got $resp_code"));
+        test_msg("Expected response code $expected, got $resp_code"));
 
       $expected = "File or directory exists, ready for destination name";
       $self->assert($expected eq $resp_msg,
-        test_msg("Expected '$expected', got '$resp_msg'"));
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
 
       ($resp_code, $resp_msg) = $client->site('CPTO', 'dst.txt');
 
       $expected = 250;
       $self->assert($expected == $resp_code,
-        test_msg("Expected $expected, got $resp_code"));
+        test_msg("Expected response code $expected, got $resp_code"));
 
       $expected = "Copy successful";
       $self->assert($expected eq $resp_msg,
-        test_msg("Expected '$expected', got '$resp_msg'"));
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
 
       unless (-f $dst_file) {
         die("File $dst_file does not exist as expected");
       }
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -326,7 +278,7 @@ sub caseignore_site_cpfr_cpto {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -336,87 +288,32 @@ sub caseignore_site_cpfr_cpto {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    test_append_logfile($log_file, $ex);
-    unlink($log_file);
-
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_site_cpfr_cpto_overwrite {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
 
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
+  my $src_file = File::Spec->rel2abs("$setup->{home_dir}/src.txt");
+  create_test_file($setup, $src_file);
 
-  my $log_file = test_get_logfile();
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  my $src_file = File::Spec->rel2abs("$home_dir/src.txt");
-  if (open(my $fh, "> $src_file")) {
-    print $fh "Hello, World!\n";
-
-    unless (close($fh)) {
-      die("Can't write $src_file: $!");
-    }
-
-  } else {
-    die("Can't open $src_file: $!");
-  }
-
-  my $dst_file = File::Spec->rel2abs("$home_dir/dst.txt");
-  if (open(my $fh, "> $dst_file")) {
-    unless (close($fh)) {
-      die("Can't write $dst_file: $!");
-    }
-
-  } else {
-    die("Can't open $dst_file: $!");
-  }
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir, $src_file)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir, $src_file)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $dst_file = File::Spec->rel2abs("$setup->{home_dir}/dst.txt");
+  create_test_file($setup, $dst_file);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
     Trace => 'DEFAULT:10 case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -425,7 +322,7 @@ sub caseignore_site_cpfr_cpto_overwrite {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -434,7 +331,8 @@ sub caseignore_site_cpfr_cpto_overwrite {
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -452,36 +350,32 @@ sub caseignore_site_cpfr_cpto_overwrite {
   if ($pid) {
     eval {
       my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
-      $client->login($user, $passwd);
+      $client->login($setup->{user}, $setup->{passwd});
 
-      my ($resp_code, $resp_msg);
+      my ($resp_code, $resp_msg) = $client->site('CPFR', 'SrC.tXt');
 
-      ($resp_code, $resp_msg) = $client->site('CPFR', 'SrC.tXt');
-
-      my $expected;
-      $expected = 350;
+      my $expected = 350;
       $self->assert($expected == $resp_code,
-        test_msg("Expected $expected, got $resp_code"));
+        test_msg("Expected response code $expected, got $resp_code"));
 
       $expected = "File or directory exists, ready for destination name";
       $self->assert($expected eq $resp_msg,
-        test_msg("Expected '$expected', got '$resp_msg'"));
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
 
       ($resp_code, $resp_msg) = $client->site('CPTO', 'DsT.tXt');
 
       $expected = 250;
       $self->assert($expected == $resp_code,
-        test_msg("Expected $expected, got $resp_code"));
+        test_msg("Expected response code $expected, got $resp_code"));
 
       $expected = "Copy successful";
       $self->assert($expected eq $resp_msg,
-        test_msg("Expected '$expected', got '$resp_msg'"));
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
 
       unless (-f $dst_file) {
         die("File $dst_file does not exist as expected");
       }
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -490,7 +384,7 @@ sub caseignore_site_cpfr_cpto_overwrite {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -500,87 +394,32 @@ sub caseignore_site_cpfr_cpto_overwrite {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    test_append_logfile($log_file, $ex);
-    unlink($log_file);
-
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_site_cpfr_cpto_filenames_with_spaces {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
 
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
+  my $src_file = File::Spec->rel2abs("$setup->{home_dir}/src file.txt");
+  create_test_file($setup, $src_file);
 
-  my $log_file = test_get_logfile();
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  my $src_file = File::Spec->rel2abs("$home_dir/src file.txt");
-  if (open(my $fh, "> $src_file")) {
-    print $fh "Hello, World!\n";
-
-    unless (close($fh)) {
-      die("Can't write $src_file: $!");
-    }
-
-  } else {
-    die("Can't open $src_file: $!");
-  }
-
-  my $dst_file = File::Spec->rel2abs("$home_dir/dst file.txt");
-  if (open(my $fh, "> $dst_file")) {
-    unless (close($fh)) {
-      die("Can't write $dst_file: $!");
-    }
-
-  } else {
-    die("Can't open $dst_file: $!");
-  }
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir, $src_file)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir, $src_file)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $dst_file = File::Spec->rel2abs("$setup->{home_dir}/dst file.txt");
+  create_test_file($setup, $dst_file);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
     Trace => 'DEFAULT:10 case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -589,7 +428,7 @@ sub caseignore_site_cpfr_cpto_filenames_with_spaces {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -598,7 +437,8 @@ sub caseignore_site_cpfr_cpto_filenames_with_spaces {
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -616,36 +456,32 @@ sub caseignore_site_cpfr_cpto_filenames_with_spaces {
   if ($pid) {
     eval {
       my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
-      $client->login($user, $passwd);
+      $client->login($setup->{user}, $setup->{passwd});
 
-      my ($resp_code, $resp_msg);
+      my ($resp_code, $resp_msg) = $client->site('CPFR', 'SrC fIlE.tXt');
 
-      ($resp_code, $resp_msg) = $client->site('CPFR', 'SrC fIlE.tXt');
-
-      my $expected;
-      $expected = 350;
+      my $expected = 350;
       $self->assert($expected == $resp_code,
-        test_msg("Expected $expected, got $resp_code"));
+        test_msg("Expected response code $expected, got $resp_code"));
 
       $expected = "File or directory exists, ready for destination name";
       $self->assert($expected eq $resp_msg,
-        test_msg("Expected '$expected', got '$resp_msg'"));
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
 
       ($resp_code, $resp_msg) = $client->site('CPTO', 'DsT fIlE.tXt');
 
       $expected = 250;
       $self->assert($expected == $resp_code,
-        test_msg("Expected $expected, got $resp_code"));
+        test_msg("Expected response code $expected, got $resp_code"));
 
       $expected = "Copy successful";
       $self->assert($expected eq $resp_msg,
-        test_msg("Expected '$expected', got '$resp_msg'"));
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
 
       unless (-f $dst_file) {
         die("File $dst_file does not exist as expected");
       }
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -654,7 +490,7 @@ sub caseignore_site_cpfr_cpto_filenames_with_spaces {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -664,18 +500,10 @@ sub caseignore_site_cpfr_cpto_filenames_with_spaces {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    test_append_logfile($log_file, $ex);
-    unlink($log_file);
-
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 1;

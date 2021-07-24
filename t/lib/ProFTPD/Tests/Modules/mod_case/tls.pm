@@ -36,53 +36,22 @@ sub list_tests {
 sub caseignore_tls_retr {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
 
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = test_get_logfile();
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
-
-  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_tls/server-cert.pem");
-  my $ca_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_tls/ca-cert.pem");
+  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_tls/server-cert.pem");
+  my $ca_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_tls/ca-cert.pem");
 
   my $dst_file = File::Spec->rel2abs("$tmpdir/dst.txt");
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
     Trace => 'DEFAULT:10 case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -91,7 +60,7 @@ sub caseignore_tls_retr {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -100,8 +69,7 @@ sub caseignore_tls_retr {
 
       'mod_tls.c' => {
         TLSEngine => 'on',
-        TLSLog => $log_file,
-        TLSProtocol => 'SSLv3 TLSv1',
+        TLSLog => $setup->{log_file},
         TLSRequired => 'on',
         TLSRSACertificateFile => $cert_file,
         TLSCACertificateFile => $ca_file,
@@ -110,7 +78,8 @@ sub caseignore_tls_retr {
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -141,7 +110,7 @@ sub caseignore_tls_retr {
         die("Can't connect to FTPS server: " . IO::Socket::SSL::errstr());
       }
 
-      unless ($client->login($user, $passwd)) {
+      unless ($client->login($setup->{user}, $setup->{passwd})) {
         die("Can't login: " . $client->last_message());
       }
 
@@ -159,7 +128,6 @@ sub caseignore_tls_retr {
       $self->assert(-f $dst_file,
         test_msg("File $dst_file does not exist as expected"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -168,7 +136,7 @@ sub caseignore_tls_retr {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -178,18 +146,10 @@ sub caseignore_tls_retr {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    test_append_logfile($log_file, $ex);
-    unlink($log_file);
-
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 1;
