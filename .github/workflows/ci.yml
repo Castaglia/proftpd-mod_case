@@ -96,6 +96,9 @@ jobs:
           # for unit tests
           apt-get install -y check libsubunit-dev
 
+          # for OpenSSL support
+          apt-get install -y libssl-dev
+
           # for integration/regression test
           apt-get install -y \
             libdata-dumper-simple-perl \
