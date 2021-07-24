@@ -89,6 +89,21 @@ jobs:
           apt-get install -y check libsubunit-dev
 
           # for integration/regression test
+          apt-get install -y \
+            libdata-dumper-simple-perl \
+            libdatetime-perl \
+            libfile-copy-recursive-perl \
+            libfile-path-tiny-perl \
+            libfile-spec-native-perl \
+            libnet-ssh2-perl \
+            libnet-ssleay-perl \
+            libnet-telnet-perl \
+            libposix-2008-perl \
+            libtest-unit-perl \
+            libtime-hr-perl \
+            libwww-perl
+          PERL_MM_USE_DEFAULT=1 perl -MCPAN -e 'install Net::FTPSSL'
+
           # for test code coverage
           apt-get install -y lcov ruby
           gem install coveralls-lcov
@@ -115,6 +130,15 @@ jobs:
         run: |
           cd proftpd
           make install
+
+      - name: Run integration tests
+        if: ${{ matrix.container == 'ubuntu:18.04' }}
+        env:
+          PROFTPD_TEST_BIN: /usr/local/sbin/proftpd
+          PROFTPD_TEST_DIR: "{{ $GITHUB_WORKSPACE/proftpd }}"
+        run: |
+          cd proftpd-mod_case
+          perl tests.pl
 
       - name: Build as shared module
         env:
