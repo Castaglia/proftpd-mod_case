@@ -62,9 +62,13 @@ jobs:
           # for unit tests
           apk add check check-dev subunit subunit-dev
 
+          # for OpenSSL support
+          apk add openssl openssl-dev
+
           # for debugging
           clang --version
           gcc --version
+          openssl version -a
 
       - name: Install Centos packages
         if: ${{ matrix.container == 'centos:8' }}
@@ -75,9 +79,13 @@ jobs:
           # for unit tests
           yum install -y check-devel https://cbs.centos.org/kojifiles/packages/subunit/1.4.0/1.el8/x86_64/subunit-1.4.0-1.el8.x86_64.rpm https://cbs.centos.org/kojifiles/packages/subunit/1.4.0/1.el8/x86_64/subunit-devel-1.4.0-1.el8.x86_64.rpm
 
+          # for OpenSSL support
+          yum install -y openssl-devel
+
           # for debugging
           clang --version
           gcc --version
+          openssl version -a
 
       - name: Install Ubuntu packages
         if: ${{ matrix.container == 'ubuntu:18.04' }}
@@ -109,9 +117,11 @@ jobs:
           gem install coveralls-lcov
           # for HTML validation
           apt-get install -y tidy
+
           # for debugging
           clang --version
           gcc --version
+          openssl version -a
 
       - name: Prepare code coverage
         if: ${{ matrix.container == 'ubuntu:18.04' }}
