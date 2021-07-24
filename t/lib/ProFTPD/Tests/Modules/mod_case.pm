@@ -1733,7 +1733,7 @@ sub caseignore_list {
       };
 
       my $ok = 1;
-      my $mismatch;
+      my $mismatch = '';
       foreach my $name (keys(%$res)) {
         unless (defined($expected->{$name})) {
           $mismatch = $name;
@@ -1851,7 +1851,7 @@ sub caseignore_list_filename_with_spaces {
       };
 
       my $ok = 1;
-      my $mismatch;
+      my $mismatch = '';
       foreach my $name (keys(%$res)) {
         unless (defined($expected->{$name})) {
           $mismatch = $name;
@@ -1967,7 +1967,7 @@ sub caseignore_nlst {
       };
 
       my $ok = 1;
-      my $mismatch;
+      my $mismatch = '';
       foreach my $name (keys(%$res)) {
         unless (defined($expected->{$name})) {
           $mismatch = $name;
@@ -2091,7 +2091,7 @@ sub caseignore_list_extlog_var_r {
       };
 
       my $ok = 1;
-      my $mismatch;
+      my $mismatch = '';
       foreach my $name (keys(%$res)) {
         unless (defined($expected->{$name})) {
           $mismatch = $name;

@@ -132,7 +132,7 @@ jobs:
           make install
 
       - name: Run integration tests
-        if: ${{ matrix.container == 'ubuntu:18.04' }}
+        if: ${{ matrix.compiler == 'gcc' && matrix.container == 'ubuntu:18.04' }}
         env:
           PROFTPD_TEST_BIN: /usr/local/sbin/proftpd
           PROFTPD_TEST_DIR: ${{ github.workspace }}/proftpd
