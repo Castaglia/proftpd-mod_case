@@ -135,7 +135,7 @@ jobs:
         if: ${{ matrix.container == 'ubuntu:18.04' }}
         env:
           PROFTPD_TEST_BIN: /usr/local/sbin/proftpd
-          PROFTPD_TEST_DIR: "{{ $GITHUB_WORKSPACE/proftpd }}"
+          PROFTPD_TEST_DIR: ${{ github.workspace }}/proftpd
         run: |
           cd proftpd-mod_case
           perl tests.pl
