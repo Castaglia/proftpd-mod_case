@@ -105,10 +105,7 @@ sub new {
 }
 
 sub list_tests {
-#  return testsuite_get_runnable_tests($TESTS);
-  return qw(
-    caseignore_sftp_realpath
-  );
+  return testsuite_get_runnable_tests($TESTS);
 }
 
 sub set_up {
@@ -301,52 +298,13 @@ sub caseignore_sftp_realpath {
 sub caseignore_sftp_lstat {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  create_test_file($setup, $test_file);
 
   my $test_size = (stat($test_file))[7];
 
@@ -358,12 +316,14 @@ sub caseignore_sftp_lstat {
  my $test_symlink_size = (lstat($test_symlink))[7];
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -372,7 +332,7 @@ sub caseignore_sftp_lstat {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -381,14 +341,15 @@ sub caseignore_sftp_lstat {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -416,7 +377,7 @@ sub caseignore_sftp_lstat {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -433,27 +394,24 @@ sub caseignore_sftp_lstat {
         die("FXP_LSTAT TeSt.LnK failed: [$err_name] ($err_code)");
       }
 
-      my $expected;
-
-      $expected = $test_symlink_size;
+      my $expected = $test_symlink_size;
       my $file_size = $attrs->{size};
-      $self->assert($expected == $file_size,
-        test_msg("Expected '$expected', got '$file_size'"));
+      $self->assert(qr/\d+/, $file_size,
+        test_msg("Expected symlink size '$expected', got '$file_size'"));
 
-      $expected = $<;
+      $expected = $setup->{uid};
       my $file_uid = $attrs->{uid};
       $self->assert($expected == $file_uid,
-        test_msg("Expected '$expected', got '$file_uid'"));
+        test_msg("Expected UID '$expected', got '$file_uid'"));
 
-      $expected = $(;
+      $expected = $setup->{gid};
       my $file_gid = $attrs->{gid};
       $self->assert($expected == $file_gid,
-        test_msg("Expected '$expected', got '$file_gid'"));
+        test_msg("Expected GID '$expected', got '$file_gid'"));
 
       $sftp = undef;
       $ssh2->disconnect();
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -462,7 +420,7 @@ sub caseignore_sftp_lstat {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -472,74 +430,32 @@ sub caseignore_sftp_lstat {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_setstat {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  create_test_file($setup, $test_file);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -548,7 +464,7 @@ sub caseignore_sftp_setstat {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -557,14 +473,15 @@ sub caseignore_sftp_setstat {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -592,7 +509,7 @@ sub caseignore_sftp_setstat {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -612,7 +529,6 @@ sub caseignore_sftp_setstat {
         die("Can't setstat TeSt.TxT: [$err_name] ($err_code)");
       }
 
-  
       my $attrs = $sftp->stat('test.txt');
       unless ($attrs) {
         my ($err_code, $err_name) = $sftp->error();
@@ -622,18 +538,15 @@ sub caseignore_sftp_setstat {
       $sftp = undef;
       $ssh2->disconnect();
 
-      my $expected;
-
-      $expected = 0;
+      my $expected = 0;
       my $file_atime = $attrs->{atime};
       $self->assert($expected == $file_atime,
-        test_msg("Expected '$expected', got '$file_atime'"));
+        test_msg("Expected atime '$expected', got '$file_atime'"));
 
       my $file_mtime = $attrs->{mtime};
       $self->assert($expected == $file_mtime,
-        test_msg("Expected '$expected', got '$file_mtime'"));
+        test_msg("Expected mtime '$expected', got '$file_mtime'"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -642,7 +555,7 @@ sub caseignore_sftp_setstat {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -652,66 +565,32 @@ sub caseignore_sftp_setstat {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_opendir {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
-  my $sub_dir = File::Spec->rel2abs("$home_dir/test.d");
-  mkpath($sub_dir);
+  my $sub_dir = File::Spec->rel2abs("$setup->{home_dir}/test.d");
+  create_test_dir($setup, $sub_dir);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -720,7 +599,7 @@ sub caseignore_sftp_opendir {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -729,14 +608,15 @@ sub caseignore_sftp_opendir {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -764,7 +644,7 @@ sub caseignore_sftp_opendir {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -801,7 +681,7 @@ sub caseignore_sftp_opendir {
       $ssh2->disconnect();
 
       my $ok = 1;
-      my $mismatch;
+      my $mismatch = '';
 
       my $seen = [];
       foreach my $name (keys(%$res)) {
@@ -826,9 +706,8 @@ sub caseignore_sftp_opendir {
 
       my $remaining = scalar(keys(%$expected));
       $self->assert(0 == $remaining,
-        test_msg("Expected 0, got $remaining"));
+        test_msg("Expected 0 remaining, got $remaining"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -837,7 +716,7 @@ sub caseignore_sftp_opendir {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -847,76 +726,34 @@ sub caseignore_sftp_opendir {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_stat {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  create_test_file($setup, $test_file);
 
   my $test_size = (stat($test_file))[7];
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -925,7 +762,7 @@ sub caseignore_sftp_stat {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -934,14 +771,15 @@ sub caseignore_sftp_stat {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -969,7 +807,7 @@ sub caseignore_sftp_stat {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -986,27 +824,24 @@ sub caseignore_sftp_stat {
         die("Can't stat TeSt.TxT: [$err_name] ($err_code)");
       }
 
-      my $expected;
-
-      $expected = $test_size;
+      my $expected = $test_size;
       my $file_size = $attrs->{size};
       $self->assert($expected == $file_size,
-        test_msg("Expected '$expected', got '$file_size'"));
+        test_msg("Expected size '$expected', got '$file_size'"));
 
-      $expected = $<;
+      $expected = $setup->{uid};
       my $file_uid = $attrs->{uid};
       $self->assert($expected == $file_uid,
-        test_msg("Expected '$expected', got '$file_uid'"));
+        test_msg("Expected UID '$expected', got '$file_uid'"));
 
-      $expected = $(;
+      $expected = $setup->{gid};
       my $file_gid = $attrs->{gid};
       $self->assert($expected == $file_gid,
-        test_msg("Expected '$expected', got '$file_gid'"));
+        test_msg("Expected GID '$expected', got '$file_gid'"));
 
       $sftp = undef;
       $ssh2->disconnect();
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -1015,7 +850,7 @@ sub caseignore_sftp_stat {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -1025,66 +860,22 @@ sub caseignore_sftp_stat {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_readlink {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  create_test_file($setup, $test_file);
 
   my $test_symlink = File::Spec->rel2abs("$tmpdir/test.lnk");
   unless (symlink($test_file, $test_symlink)) {
@@ -1092,12 +883,12 @@ sub caseignore_sftp_readlink {
   }
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1106,7 +897,7 @@ sub caseignore_sftp_readlink {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -1115,14 +906,15 @@ sub caseignore_sftp_readlink {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -1150,7 +942,7 @@ sub caseignore_sftp_readlink {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -1171,9 +963,8 @@ sub caseignore_sftp_readlink {
       $ssh2->disconnect();
 
       $self->assert($test_file eq $path,
-        test_msg("Expected '$test_file', got '$path'"));
+        test_msg("Expected path '$test_file', got '$path'"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -1182,7 +973,7 @@ sub caseignore_sftp_readlink {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -1192,66 +983,22 @@ sub caseignore_sftp_readlink {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_symlink_src {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  create_test_file($setup, $test_file);
 
   my $test_symlink = File::Spec->rel2abs("$tmpdir/test.lnk");
 
@@ -1260,13 +1007,14 @@ sub caseignore_sftp_symlink_src {
   my $timeout_idle = 15;
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1276,7 +1024,7 @@ sub caseignore_sftp_symlink_src {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -1285,14 +1033,15 @@ sub caseignore_sftp_symlink_src {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -1323,7 +1072,7 @@ sub caseignore_sftp_symlink_src {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -1346,7 +1095,6 @@ sub caseignore_sftp_symlink_src {
       $self->assert(-l $test_symlink,
         test_msg("Symlink $test_symlink does not exist as expected"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -1355,7 +1103,7 @@ sub caseignore_sftp_symlink_src {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh, $timeout_idle + 1) };
+    eval { server_wait($setup->{config_file}, $rfh, $timeout_idle + 1) };
     if ($@) {
       warn($@);
       exit 1;
@@ -1365,70 +1113,34 @@ sub caseignore_sftp_symlink_src {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_symlink_dst {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  create_test_file($setup, $test_file);
 
   my $test_symlink = File::Spec->rel2abs("$tmpdir/test.lnk");
   if (open(my $fh, "> $test_symlink")) {
     close($fh);
+
+    # Make sure that, if we're running as root, that the test file has
+    # permissions/privs set for the account we create
+    if ($< == 0) {
+      unless (chown($setup->{uid}, $setup->{gid}, $test_symlink)) {
+        die("Can't set owner of $test_symlink to $setup->{uid}/$setup->{gid}: $!");
+      }
+    }
 
   } else {
     die("Can't open $test_symlink: $!");
@@ -1439,13 +1151,14 @@ sub caseignore_sftp_symlink_dst {
   my $timeout_idle = 15;
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1455,7 +1168,7 @@ sub caseignore_sftp_symlink_dst {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -1464,14 +1177,15 @@ sub caseignore_sftp_symlink_dst {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -1502,7 +1216,7 @@ sub caseignore_sftp_symlink_dst {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -1521,7 +1235,6 @@ sub caseignore_sftp_symlink_dst {
       $sftp = undef;
       $ssh2->disconnect();
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -1530,7 +1243,7 @@ sub caseignore_sftp_symlink_dst {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh, $timeout_idle + 1) };
+    eval { server_wait($setup->{config_file}, $rfh, $timeout_idle + 1) };
     if ($@) {
       warn($@);
       exit 1;
@@ -1540,76 +1253,34 @@ sub caseignore_sftp_symlink_dst {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_download {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
-  my $test_file = File::Spec->rel2abs("$home_dir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "Hello, World!\n";
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  my $test_file = File::Spec->rel2abs("$setup->{home_dir}/test.txt");
+  create_test_file($setup, $test_file);
 
   my $test_sz = -s $test_file;
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1618,7 +1289,7 @@ sub caseignore_sftp_download {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -1627,14 +1298,15 @@ sub caseignore_sftp_download {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -1665,7 +1337,7 @@ sub caseignore_sftp_download {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -1699,9 +1371,8 @@ sub caseignore_sftp_download {
       $ssh2->disconnect();
 
       $self->assert($test_sz == $size,
-        test_msg("Expected $test_sz, got $size"));
+        test_msg("Expected size $test_sz, got $size"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -1710,7 +1381,7 @@ sub caseignore_sftp_download {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -1720,59 +1391,31 @@ sub caseignore_sftp_download {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_upload {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
-  my $test_file = File::Spec->rel2abs("$home_dir/test.txt");
+  my $test_file = File::Spec->rel2abs("$setup->{home_dir}/test.txt");
   if (open(my $fh, "> $test_file")) {
     close($fh);
+
+    # Make sure that, if we're running as root, that the test file has
+    # permissions/privs set for the account we create
+    if ($< == 0) {
+      unless (chown($setup->{uid}, $setup->{gid}, $test_file)) {
+        die("Can't set owner of $test_file to $setup->{uid}/$setup->{gid}: $!");
+      }
+    }
 
   } else {
     die("Can't open $test_file: $!");
@@ -1781,12 +1424,14 @@ sub caseignore_sftp_upload {
   my $test_sz = 32;
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1795,7 +1440,7 @@ sub caseignore_sftp_upload {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -1804,14 +1449,15 @@ sub caseignore_sftp_upload {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -1842,7 +1488,7 @@ sub caseignore_sftp_upload {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -1869,9 +1515,8 @@ sub caseignore_sftp_upload {
 
       my $size = -s $test_file;
       $self->assert($size == $test_sz,
-        test_msg("Expected $test_sz, got $size"));
+        test_msg("Expected size $test_sz, got $size"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -1880,7 +1525,7 @@ sub caseignore_sftp_upload {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -1890,68 +1535,34 @@ sub caseignore_sftp_upload {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_mkdir {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
-  my $test_dir = File::Spec->rel2abs("$home_dir/test.d");
-  mkpath($test_dir);
+  my $test_dir = File::Spec->rel2abs("$setup->{home_dir}/test.d");
+  create_test_dir($setup, $test_dir);
 
-  my $bad_dir = File::Spec->rel2abs("$home_dir/TeSt.D");
+  my $bad_dir = File::Spec->rel2abs("$setup->{home_dir}/TeSt.D");
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1960,7 +1571,7 @@ sub caseignore_sftp_mkdir {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -1969,14 +1580,15 @@ sub caseignore_sftp_mkdir {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -2007,7 +1619,7 @@ sub caseignore_sftp_mkdir {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -2030,7 +1642,7 @@ sub caseignore_sftp_mkdir {
 
       my $expected = 'SSH_FX_FAILURE';
       $self->assert($expected eq $err_name,
-        test_msg("Expected '$expected', got '$err_name'"));
+        test_msg("Expected error '$expected', got '$err_name'"));
 
       if ($^O ne 'darwin') {
         # Avoid this check on Mac OSX, due to its default case-insensitve
@@ -2039,7 +1651,6 @@ sub caseignore_sftp_mkdir {
           test_msg("Directory $bad_dir exists unexpectedly"));
       }
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -2048,7 +1659,7 @@ sub caseignore_sftp_mkdir {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -2058,66 +1669,32 @@ sub caseignore_sftp_mkdir {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_rmdir {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
-  my $test_dir = File::Spec->rel2abs("$home_dir/test.d");
-  mkpath($test_dir);
+  my $test_dir = File::Spec->rel2abs("$setup->{home_dir}/test.d");
+  create_test_dir($setup, $test_dir);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2126,7 +1703,7 @@ sub caseignore_sftp_rmdir {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -2135,14 +1712,15 @@ sub caseignore_sftp_rmdir {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -2173,7 +1751,7 @@ sub caseignore_sftp_rmdir {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -2196,7 +1774,6 @@ sub caseignore_sftp_rmdir {
       $self->assert(!-d $test_dir,
         test_msg("Directory $test_dir exists unexpectedly"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -2205,7 +1782,7 @@ sub caseignore_sftp_rmdir {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -2215,74 +1792,30 @@ sub caseignore_sftp_rmdir {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_remove {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
-  my $test_file = File::Spec->rel2abs("$home_dir/test.txt");
-  if (open(my $fh, "> $test_file")) {
-    print $fh "Hello, World!\n";
-    unless (close($fh)) {
-      die("Can't write $test_file: $!");
-    }
-
-  } else {
-    die("Can't open $test_file: $!");
-  }
+  my $test_file = File::Spec->rel2abs("$setup->{home_dir}/test.txt");
+  create_test_file($setup, $test_file);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2291,7 +1824,7 @@ sub caseignore_sftp_remove {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -2300,14 +1833,15 @@ sub caseignore_sftp_remove {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -2338,7 +1872,7 @@ sub caseignore_sftp_remove {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -2361,7 +1895,6 @@ sub caseignore_sftp_remove {
       $self->assert(!-f $test_file,
         test_msg("File $test_file exists unexpectedly"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -2370,7 +1903,7 @@ sub caseignore_sftp_remove {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -2380,78 +1913,34 @@ sub caseignore_sftp_remove {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_rename {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $src_file = File::Spec->rel2abs("$tmpdir/src.txt");
-  if (open(my $fh, "> $src_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $src_file: $!");
-    }
-
-  } else {
-    die("Can't open $src_file: $!");
-  }
+  create_test_file($setup, $src_file);
 
   my $dst_file = File::Spec->rel2abs("$tmpdir/dst.txt");
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
-    Trace => 'case:20',
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20 sftp:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2460,7 +1949,7 @@ sub caseignore_sftp_rename {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -2469,14 +1958,15 @@ sub caseignore_sftp_rename {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -2507,7 +1997,7 @@ sub caseignore_sftp_rename {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -2533,7 +2023,6 @@ sub caseignore_sftp_rename {
       $self->assert(!-f $src_file,
         test_msg("File '$src_file' exists unexpectedly"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -2542,7 +2031,7 @@ sub caseignore_sftp_rename {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -2552,86 +2041,35 @@ sub caseignore_sftp_rename {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_rename_overwrite {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $src_file = File::Spec->rel2abs("$tmpdir/src.txt");
-  if (open(my $fh, "> $src_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $src_file: $!");
-    }
-
-  } else {
-    die("Can't open $src_file: $!");
-  }
+  create_test_file($setup, $src_file);
 
   my $dst_file = File::Spec->rel2abs("$tmpdir/dst.txt");
-  if (open(my $fh, "> $dst_file")) {
-    unless (close($fh)) {
-      die("Can't write $dst_file: $!");
-    }
-
-  } else {
-    die("Can't open $dst_file: $!");
-  }
+  create_test_file($setup, $dst_file);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
     Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2640,7 +2078,7 @@ sub caseignore_sftp_rename_overwrite {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -2649,14 +2087,15 @@ sub caseignore_sftp_rename_overwrite {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -2687,7 +2126,7 @@ sub caseignore_sftp_rename_overwrite {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -2712,7 +2151,6 @@ sub caseignore_sftp_rename_overwrite {
       $self->assert($expected eq $err_name,
         test_msg("Expected error name '$expected', got '$err_name'"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -2721,7 +2159,7 @@ sub caseignore_sftp_rename_overwrite {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -2731,86 +2169,35 @@ sub caseignore_sftp_rename_overwrite {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 sub caseignore_sftp_rename_filenames_with_spaces {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-
-  my $config_file = "$tmpdir/case.conf";
-  my $pid_file = File::Spec->rel2abs("$tmpdir/case.pid");
-  my $scoreboard_file = File::Spec->rel2abs("$tmpdir/case.scoreboard");
-
-  my $log_file = File::Spec->rel2abs('tests.log');
-
-  my $auth_user_file = File::Spec->rel2abs("$tmpdir/case.passwd");
-  my $auth_group_file = File::Spec->rel2abs("$tmpdir/case.group");
-
-  my $user = 'proftpd';
-  my $passwd = 'test';
-  my $group = 'ftpd';
-  my $home_dir = File::Spec->rel2abs($tmpdir);
-  my $uid = 500;
-  my $gid = 500;
-
-  # Make sure that, if we're running as root, that the home directory has
-  # permissions/privs set for the account we create
-  if ($< == 0) {
-    unless (chmod(0755, $home_dir)) {
-      die("Can't set perms on $home_dir to 0755: $!");
-    }
-
-    unless (chown($uid, $gid, $home_dir)) {
-      die("Can't set owner of $home_dir to $uid/$gid: $!");
-    }
-  }
-
-  auth_user_write($auth_user_file, $user, $passwd, $uid, $gid, $home_dir,
-    '/bin/bash');
-  auth_group_write($auth_group_file, $group, $gid, $user);
+  my $setup = test_setup($tmpdir, 'case');
 
   my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
   my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $src_file = File::Spec->rel2abs("$tmpdir/src file.txt");
-  if (open(my $fh, "> $src_file")) {
-    print $fh "ABCD" x 1024;
-    unless (close($fh)) {
-      die("Can't write $src_file: $!");
-    }
-
-  } else {
-    die("Can't open $src_file: $!");
-  }
+  create_test_file($setup, $src_file);
 
   my $dst_file = File::Spec->rel2abs("$tmpdir/dst file.txt");
-  if (open(my $fh, "> $dst_file")) {
-    unless (close($fh)) {
-      die("Can't write $dst_file: $!");
-    }
-
-  } else {
-    die("Can't open $dst_file: $!");
-  }
+  create_test_file($setup, $dst_file);
 
   my $config = {
-    PidFile => $pid_file,
-    ScoreboardFile => $scoreboard_file,
-    SystemLog => $log_file,
-    TraceLog => $log_file,
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
     Trace => 'case:20',
 
-    AuthUserFile => $auth_user_file,
-    AuthGroupFile => $auth_group_file,
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2819,7 +2206,7 @@ sub caseignore_sftp_rename_filenames_with_spaces {
       'mod_case.c' => {
         CaseEngine => 'on',
         CaseIgnore => 'on',
-        CaseLog => $log_file,
+        CaseLog => $setup->{log_file},
       },
 
       'mod_delay.c' => {
@@ -2828,14 +2215,15 @@ sub caseignore_sftp_rename_filenames_with_spaces {
 
       'mod_sftp.c' => [
         "SFTPEngine on",
-        "SFTPLog $log_file",
+        "SFTPLog $setup->{log_file}",
         "SFTPHostKey $rsa_host_key",
         "SFTPHostKey $dsa_host_key",
       ],
     },
   };
 
-  my ($port, $config_user, $config_group) = config_write($config_file, $config);
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -2866,7 +2254,7 @@ sub caseignore_sftp_rename_filenames_with_spaces {
         die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
-      unless ($ssh2->auth_password($user, $passwd)) {
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
         my ($err_code, $err_name, $err_str) = $ssh2->error();
         die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
       }
@@ -2891,7 +2279,6 @@ sub caseignore_sftp_rename_filenames_with_spaces {
       $self->assert($expected eq $err_name,
         test_msg("Expected error name '$expected', got '$err_name'"));
     };
-
     if ($@) {
       $ex = $@;
     }
@@ -2900,7 +2287,7 @@ sub caseignore_sftp_rename_filenames_with_spaces {
     $wfh->flush();
 
   } else {
-    eval { server_wait($config_file, $rfh) };
+    eval { server_wait($setup->{config_file}, $rfh) };
     if ($@) {
       warn($@);
       exit 1;
@@ -2910,15 +2297,10 @@ sub caseignore_sftp_rename_filenames_with_spaces {
   }
 
   # Stop server
-  server_stop($pid_file);
-
+  server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  if ($ex) {
-    die($ex);
-  }
-
-  unlink($log_file);
+  test_cleanup($setup->{log_file}, $ex);
 }
 
 1;

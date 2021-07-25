@@ -245,7 +245,6 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
       *((char **) push_array(argv)) = pstrdup(cmd->pool, cmd->argv[0]);
 
       if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
-
         if (strncmp(cmd->argv[1], "CHGRP", 6) == 0 ||
             strncmp(cmd->argv[1], "CHMOD", 6) == 0) {
 
@@ -320,6 +319,8 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
         pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_RNFR_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_RNTO_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
         pr_cmd_strcmp(cmd, "LSTAT") == 0 ||
         pr_cmd_strcmp(cmd, "OPENDIR") == 0 ||
