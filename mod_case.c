@@ -601,6 +601,9 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
         return PR_DECLINED(cmd);
       }
 
+      /* Make sure we operate on a duplicate of the extracted path. */
+      path = pstrdup(cmd->tmp_pool, path);
+
     } else if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
       register unsigned int i;
 
