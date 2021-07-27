@@ -76,14 +76,13 @@ static int case_expr_eval_cmds(cmd_rec *cmd, array_header *list) {
 static char *case_get_opts_path(cmd_rec *cmd, int *path_index) {
   char *ptr;
   char *path;
-  char *cmdarg;
   size_t pathlen;
 
   if (cmd->arg == NULL) {
     return NULL;
   }
 
-  ptr = path = cmdarg = pstrdup(cmd->tmp_pool, cmd->arg);
+  ptr = path = cmd->arg;
 
   pathlen = strlen(path);
   if (pathlen == 0) {
@@ -138,7 +137,7 @@ static char *case_get_opts_path(cmd_rec *cmd, int *path_index) {
     return NULL;
   }
 
-  *path_index = (ptr - cmdarg);
+  *path_index = (ptr - cmd->arg);
   return path;
 }
 
