@@ -62,9 +62,13 @@ jobs:
           # for unit tests
           apk add check check-dev subunit subunit-dev
 
+          # for OpenSSL support
+          apk add openssl openssl-dev
+
           # for debugging
           clang --version
           gcc --version
+          openssl version -a
 
       - name: Install Centos packages
         if: ${{ matrix.container == 'centos:8' }}
@@ -75,9 +79,13 @@ jobs:
           # for unit tests
           yum install -y check-devel https://cbs.centos.org/kojifiles/packages/subunit/1.4.0/1.el8/x86_64/subunit-1.4.0-1.el8.x86_64.rpm https://cbs.centos.org/kojifiles/packages/subunit/1.4.0/1.el8/x86_64/subunit-devel-1.4.0-1.el8.x86_64.rpm
 
+          # for OpenSSL support
+          yum install -y openssl-devel
+
           # for debugging
           clang --version
           gcc --version
+          openssl version -a
 
       - name: Install Ubuntu packages
         if: ${{ matrix.container == 'ubuntu:18.04' }}
@@ -88,15 +96,35 @@ jobs:
           # for unit tests
           apt-get install -y check libsubunit-dev
 
+          # for OpenSSL support
+          apt-get install -y libssl-dev
+
           # for integration/regression test
+          apt-get install -y \
+            libdata-dumper-simple-perl \
+            libdatetime-perl \
+            libfile-copy-recursive-perl \
+            libfile-path-tiny-perl \
+            libfile-spec-native-perl \
+            libnet-ssh2-perl \
+            libnet-ssleay-perl \
+            libnet-telnet-perl \
+            libposix-2008-perl \
+            libtest-unit-perl \
+            libtime-hr-perl \
+            libwww-perl
+          PERL_MM_USE_DEFAULT=1 perl -MCPAN -e 'install Net::FTPSSL'
+
           # for test code coverage
           apt-get install -y lcov ruby
           gem install coveralls-lcov
           # for HTML validation
           apt-get install -y tidy
+
           # for debugging
           clang --version
           gcc --version
+          openssl version -a
 
       - name: Prepare code coverage
         if: ${{ matrix.container == 'ubuntu:18.04' }}
@@ -108,13 +136,22 @@ jobs:
           CC: ${{ matrix.compiler }}
         run: |
           cd proftpd
-          ./configure LIBS="-lm -lsubunit -lrt -pthread" --enable-devel=coverage --enable-tests --with-modules=mod_case
+          ./configure LIBS="-lm -lsubunit -lrt -pthread" --enable-devel=coverage --enable-tests --with-modules=mod_case:mod_copy:mod_sftp:mod_tls
           make
 
       - name: Install as static module
         run: |
           cd proftpd
           make install
+
+      - name: Run integration tests
+        if: ${{ matrix.compiler == 'gcc' && matrix.container == 'ubuntu:18.04' }}
+        env:
+          PROFTPD_TEST_BIN: /usr/local/sbin/proftpd
+          PROFTPD_TEST_DIR: ${{ github.workspace }}/proftpd
+        run: |
+          cd proftpd-mod_case
+          perl tests.pl
 
       - name: Build as shared module
         env:

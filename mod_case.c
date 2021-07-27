@@ -312,6 +312,8 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *repla
         pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_MKD_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_RMD_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_RNFR_ID) == 0 ||
+        pr_cmd_cmp(cmd, PR_CMD_RNTO_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_DELE_ID) == 0 ||
         pr_cmd_strcmp(cmd, "LSTAT") == 0 ||
         pr_cmd_strcmp(cmd, "OPENDIR") == 0 ||
@@ -721,6 +723,9 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
       if (path == NULL) {
         return PR_DECLINED(cmd);
       }
+
+      /* Make sure we operate on a duplicate of the extracted path. */
+      path = pstrdup(cmd->tmp_pool, path);
 
     } else if (pr_cmd_cmp(cmd, PR_CMD_SITE_ID) == 0) {
       register unsigned int i;
