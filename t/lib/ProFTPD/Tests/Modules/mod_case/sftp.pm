@@ -53,9 +53,19 @@ my $TESTS = {
     test_class => [qw(forking mod_sftp sftp)],
   },
 
+  caseignore_sftp_symlink_src_issue5 => {
+    order => ++$order,
+    test_class => [qw(forking mod_sftp sftp)],
+  },
+
   caseignore_sftp_symlink_dst => {
     order => ++$order,
     test_class => [qw(forking mod_sftp sftp)],
+  },
+
+  caseignore_sftp_symlink_dst_issue5 => {
+    order => ++$order,
+    test_class => [qw(bug forking mod_sftp sftp)],
   },
 
   caseignore_sftp_download => {
@@ -1119,6 +1129,139 @@ sub caseignore_sftp_symlink_src {
   test_cleanup($setup->{log_file}, $ex);
 }
 
+sub caseignore_sftp_symlink_src_issue5 {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+
+  my $test_dir = File::Spec->rel2abs("$tmpdir/tEsT.d/SuB.d");
+  create_test_dir($setup, $test_dir);
+
+  my $test_file = File::Spec->rel2abs("$test_dir/test.txt");
+  create_test_file($setup, $test_file);
+
+  my $test_symlink = File::Spec->rel2abs("$test_dir/test.lnk");
+
+  # Not sure why, but Net::SSH2::SFTP seems to need a little more time
+  # for this test case.
+  my $timeout_idle = 15;
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    AllowOverwrite => 'on',
+    AllowStoreRestart => 'on',
+    TimeoutIdle => 5,
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
+      'mod_sftp.c' => [
+        "SFTPEngine on",
+        "SFTPLog $setup->{log_file}",
+        "SFTPHostKey $rsa_host_key",
+        "SFTPHostKey $dsa_host_key",
+      ],
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  require Net::SSH2;
+
+  my $ex;
+
+  # Ignore SIGPIPE
+  local $SIG{PIPE} = sub { };
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $ssh2 = Net::SSH2->new();
+
+      sleep(1);
+
+      unless ($ssh2->connect('127.0.0.1', $port)) {
+        my ($err_code, $err_name, $err_str) = $ssh2->error();
+        die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
+      }
+
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
+        my ($err_code, $err_name, $err_str) = $ssh2->error();
+        die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
+      }
+
+      my $sftp = $ssh2->sftp();
+      unless ($sftp) {
+        my ($err_code, $err_name, $err_str) = $ssh2->error();
+        die("Can't use SFTP on SSH2 server: [$err_name] ($err_code) $err_str");
+      }
+
+      my $res = $sftp->symlink('test.d/sub.d/TeSt.TxT', 'test.d/sub.d/test.lnk');
+      unless (defined($res)) {
+        my ($err_code, $err_name) = $sftp->error();
+        die("Can't symlink test.lnk to TeSt.TxT: [$err_name] ($err_code)");
+      }
+
+      $sftp = undef;
+      $ssh2->disconnect();
+
+      $self->assert(-l $test_symlink,
+        test_msg("Symlink $test_symlink does not exist as expected"));
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh, $timeout_idle + 1) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
 sub caseignore_sftp_symlink_dst {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
@@ -1228,6 +1371,149 @@ sub caseignore_sftp_symlink_dst {
       }
 
       my $res = $sftp->symlink('test.txt', 'TeSt.LnK');
+      if ($res) {
+        die("Symlink of TeSt.LnK to test.txt succeeded unexpectedly");
+      }
+
+      $sftp = undef;
+      $ssh2->disconnect();
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh, $timeout_idle + 1) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
+sub caseignore_sftp_symlink_dst_issue5 {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+
+  my $test_dir = File::Spec->rel2abs("$tmpdir/tEsT.d/SuB.d");
+  create_test_dir($setup, $test_dir);
+
+  my $test_file = File::Spec->rel2abs("$test_dir/test.txt");
+  create_test_file($setup, $test_file);
+
+  my $test_symlink = File::Spec->rel2abs("$test_dir/test.lnk");
+  if (open(my $fh, "> $test_symlink")) {
+    close($fh);
+
+    # Make sure that, if we're running as root, that the test file has
+    # permissions/privs set for the account we create
+    if ($< == 0) {
+      unless (chown($setup->{uid}, $setup->{gid}, $test_symlink)) {
+        die("Can't set owner of $test_symlink to $setup->{uid}/$setup->{gid}: $!");
+      }
+    }
+
+  } else {
+    die("Can't open $test_symlink: $!");
+  }
+
+  # Not sure why, but Net::SSH2::SFTP seems to need a little more time
+  # for this test case.
+  my $timeout_idle = 15;
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    AllowOverwrite => 'on',
+    AllowStoreRestart => 'on',
+    TimeoutIdle => 5,
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
+      'mod_sftp.c' => [
+        "SFTPEngine on",
+        "SFTPLog $setup->{log_file}",
+        "SFTPHostKey $rsa_host_key",
+        "SFTPHostKey $dsa_host_key",
+      ],
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  require Net::SSH2;
+
+  my $ex;
+
+  # Ignore SIGPIPE
+  local $SIG{PIPE} = sub { };
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $ssh2 = Net::SSH2->new();
+
+      sleep(1);
+
+      unless ($ssh2->connect('127.0.0.1', $port)) {
+        my ($err_code, $err_name, $err_str) = $ssh2->error();
+        die("Can't connect to SSH2 server: [$err_name] ($err_code) $err_str");
+      }
+
+      unless ($ssh2->auth_password($setup->{user}, $setup->{passwd})) {
+        my ($err_code, $err_name, $err_str) = $ssh2->error();
+        die("Can't login to SSH2 server: [$err_name] ($err_code) $err_str");
+      }
+
+      my $sftp = $ssh2->sftp();
+      unless ($sftp) {
+        my ($err_code, $err_name, $err_str) = $ssh2->error();
+        die("Can't use SFTP on SSH2 server: [$err_name] ($err_code) $err_str");
+      }
+
+      my $res = $sftp->symlink('test.d/sub.d/test.txt', 'test.d/sub.d/TeSt.LnK');
       if ($res) {
         die("Symlink of TeSt.LnK to test.txt succeeded unexpectedly");
       }

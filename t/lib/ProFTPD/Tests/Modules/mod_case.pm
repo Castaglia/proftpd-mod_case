@@ -26,9 +26,24 @@ my $TESTS = {
     test_class => [qw(forking)],
   },
 
+  caseignore_cwd_exact_match => {
+    order => ++$order,
+    test_class => [qw(forking)],
+  },
+
+  caseignore_cwd_issue5 => {
+    order => ++$order,
+    test_class => [qw(bug forking)],
+  },
+
   caseignore_dele => {
     order => ++$order,
     test_class => [qw(forking)],
+  },
+
+  caseignore_dele_issue5 => {
+    order => ++$order,
+    test_class => [qw(bug forking)],
   },
 
   caseignore_mdtm => {
@@ -54,6 +69,11 @@ my $TESTS = {
   caseignore_retr => {
     order => ++$order,
     test_class => [qw(forking)],
+  },
+
+  caseignore_retr_issue5 => {
+    order => ++$order,
+    test_class => [qw(bug forking)],
   },
 
   caseignore_rmd => {
@@ -91,6 +111,11 @@ my $TESTS = {
     test_class => [qw(forking)],
   },
 
+  caseignore_stor_issue5 => {
+    order => ++$order,
+    test_class => [qw(bug forking)],
+  },
+
   caseignore_list => {
     order => ++$order,
     test_class => [qw(forking)],
@@ -102,6 +127,11 @@ my $TESTS = {
   },
 
   caseignore_list_no_matches => {
+    order => ++$order,
+    test_class => [qw(bug forking)],
+  },
+
+  caseignore_list_issue5 => {
     order => ++$order,
     test_class => [qw(bug forking)],
   },
@@ -430,6 +460,265 @@ sub caseignore_cwd {
   test_cleanup($setup->{log_file}, $ex);
 }
 
+sub caseignore_cwd_exact_match {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $sub_dir = File::Spec->rel2abs("$tmpdir/test.d/sub.d");
+  create_test_dir($setup, $sub_dir);
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+
+      my ($resp_code, $resp_msg) = $client->cwd('test.d/sub.d');
+
+      my $expected = 250;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      $expected = 'CWD command successful';
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+
+      ($resp_code, $resp_msg) = $client->pwd();
+
+      $expected = 257;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      if ($^O eq 'darwin') {
+        # MacOSX-specific hack to deal with their tmp filesystem
+        $sub_dir = ('/private' . $sub_dir);
+      }
+
+      $expected = "\"$sub_dir\" is the current directory";
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+
+      # Reset to home directory, and try XCWD, too.
+      ($resp_code, $resp_msg) = $client->cwd($setup->{home_dir});
+      $expected = 250;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      ($resp_code, $resp_msg) = $client->xcwd('test.d/sub.d');
+
+      $expected = 250;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      $expected = 'XCWD command successful';
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+
+      ($resp_code, $resp_msg) = $client->pwd();
+
+      $expected = 257;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      $expected = "\"$sub_dir\" is the current directory";
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
+sub caseignore_cwd_issue5 {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $sub_dir = File::Spec->rel2abs("$tmpdir/TeSt.d/Sub.D");
+  create_test_dir($setup, $sub_dir);
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+
+      my ($resp_code, $resp_msg) = $client->cwd('test.d/sub.d');
+
+      my $expected = 250;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      $expected = 'CWD command successful';
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+
+      ($resp_code, $resp_msg) = $client->pwd();
+
+      $expected = 257;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      if ($^O eq 'darwin') {
+        # MacOSX-specific hack to deal with their tmp filesystem
+        $sub_dir = ('/private' . $sub_dir);
+      }
+
+      $expected = "\"$sub_dir\" is the current directory";
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+
+      # Reset to home directory, and try XCWD, too.
+      ($resp_code, $resp_msg) = $client->cwd($setup->{home_dir});
+      $expected = 250;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      ($resp_code, $resp_msg) = $client->xcwd('tEsT.D/sUb.D');
+
+      $expected = 250;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      $expected = 'XCWD command successful';
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+
+      ($resp_code, $resp_msg) = $client->pwd();
+
+      $expected = 257;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      if ($^O eq 'darwin') {
+        # MacOSX-specific hack to deal with their tmp filesystem
+        $sub_dir = ('/private' . $sub_dir);
+      }
+
+      $expected = "\"$sub_dir\" is the current directory";
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
 sub caseignore_dele {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
@@ -483,6 +772,98 @@ sub caseignore_dele {
       $client->login($setup->{user}, $setup->{passwd});
 
       my ($resp_code, $resp_msg) = $client->dele('TeSt.TxT');
+
+      my $expected = 250;
+      $self->assert($expected == $resp_code,
+        test_msg("Expected response code $expected, got $resp_code"));
+
+      $expected = 'DELE command successful';
+      $self->assert($expected eq $resp_msg,
+        test_msg("Expected response message '$expected', got '$resp_msg'"));
+
+      $self->assert(!-f $test_file,
+        test_msg("File $test_file exists unexpectedly"));
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
+sub caseignore_dele_issue5 {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $test_dir = File::Spec->rel2abs("$setup->{home_dir}/SuB.D");
+  create_test_dir($setup, $test_dir);
+
+  my $test_file = File::Spec->rel2abs("$test_dir/Test.TXT");
+  create_test_file($setup, $test_file);
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+
+      my ($resp_code, $resp_msg) = $client->dele('sub.d/TeSt.TxT');
 
       my $expected = 250;
       $self->assert($expected == $resp_code,
@@ -941,10 +1322,111 @@ sub caseignore_retr {
       my $buf;
       $conn->read($buf, 25);
       eval { $conn->close() };
+      sleep(1);
 
       my $resp_code = $client->response_code();
       my $resp_msg = $client->response_msg();
       $self->assert_transfer_ok($resp_code, $resp_msg);
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
+sub caseignore_retr_issue5 {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $test_dir = File::Spec->rel2abs("$setup->{home_dir}/TEST.D");
+  create_test_dir($setup, $test_dir);
+
+  my $test_file = File::Spec->rel2abs("$test_dir/tEst.tXt");
+  create_test_file($setup, $test_file);
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    AllowOverwrite => 'on',
+    AllowStoreRestart => 'on',
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+
+      my $conn = $client->retr_raw("test.d/TeSt.TxT");
+      unless ($conn) {
+        die("RETR TeSt.TxT failed: " . $client->response_code() . " " .
+          $client->response_msg());
+      }
+
+      my $buf;
+      $conn->read($buf, 25);
+      eval { $conn->close() };
+
+      sleep(1);
+
+      my $resp_code = $client->response_code();
+      my $resp_msg = $client->response_msg();
+      $self->assert_transfer_ok($resp_code, $resp_msg);
+
+      $client->quit();
     };
     if ($@) {
       $ex = $@;
@@ -1656,6 +2138,108 @@ sub caseignore_stor_filename_with_spaces {
   test_cleanup($setup->{log_file}, $ex);
 }
 
+sub caseignore_stor_issue5 {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $test_dir = File::Spec->rel2abs("$setup->{home_dir}/sUb.D/tEsT.d");
+  create_test_dir($setup, $test_dir);
+
+  my $test_file = File::Spec->rel2abs("$test_dir/TeSt.TxT");
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    AllowOverwrite => 'on',
+    AllowStoreRestart => 'on',
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+
+      my $conn = $client->stor_raw("sub.d/test.d/TeSt.TxT");
+      unless ($conn) {
+        die("STOR TeSt.TxT failed: " . $client->response_code() . " " .
+          $client->response_msg());
+      }
+
+      my $buf = "Hello again!\n";
+      $conn->write($buf, length($buf), 25);
+      eval { $conn->close() };
+
+      sleep(1);
+
+      my $resp_code = $client->response_code();
+      my $resp_msg = $client->response_msg();
+      $self->assert_transfer_ok($resp_code, $resp_msg);
+      $client->quit();
+
+      # Make sure that the new file exists...
+      $self->assert(-f $test_file,
+        test_msg("File '$test_file' does not exist as expected"));
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
 sub caseignore_list {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
@@ -1982,6 +2566,128 @@ sub caseignore_list_no_matches {
         '.' => 1,
         '..' => 1,
         'foo.txt' => 1,
+      };
+
+      my $ok = 1;
+      my $mismatch = '';
+      foreach my $name (keys(%$res)) {
+        unless (defined($expected->{$name})) {
+          $mismatch = $name;
+          $ok = 0;
+          last;
+        }
+      }
+
+      $self->assert($ok,
+        test_msg("Unexpected name '$mismatch' appeared in LIST data"));
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
+sub caseignore_list_issue5 {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'case');
+
+  my $test_dir = File::Spec->rel2abs("$tmpdir/SuB.d/tEsT.d");
+  create_test_dir($setup, $test_dir);
+
+  my $test_file = File::Spec->rel2abs("$test_dir/TeSt.DAT");
+  create_test_file($setup, $test_file);
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'case:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    IfModules => {
+      'mod_case.c' => {
+        CaseEngine => 'on',
+        CaseIgnore => 'on',
+        CaseLog => $setup->{log_file},
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+
+      my $conn = $client->list_raw('-a -l sub.d/test.d');
+      unless ($conn) {
+        die("Failed to LIST: " . $client->response_code() . " " .
+          $client->response_msg());
+      }
+
+      my $buf;
+      $conn->read($buf, 8192, 25);
+      eval { $conn->close() };
+
+      my $resp_code = $client->response_code();
+      my $resp_msg = $client->response_msg();
+      $self->assert_transfer_ok($resp_code, $resp_msg);
+
+      # We have to be careful of the fact that readdir returns directory
+      # entries in an unordered fashion.
+      my $res = {};
+      my $lines = [split(/\n/, $buf)];
+      foreach my $line (@$lines) {
+        if ($line =~ /^\S+\s+\d+\s+\S+\s+\S+\s+.*?\s+(\S+)$/) {
+          $res->{$1} = 1;
+        }
+      }
+
+      my $expected = {
+        '.' => 1,
+        '..' => 1,
+        'TeSt.DAT' => 1,
       };
 
       my $ok = 1;
