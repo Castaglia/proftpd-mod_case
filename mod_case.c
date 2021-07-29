@@ -152,8 +152,8 @@ static void case_replace_copy_paths(cmd_rec *cmd, const char *proto,
     dst_path = pstrdup(cmd->tmp_pool, "/");
   }
 
-  if (strncmp(proto, "ftp", 4) == 0 ||
-      strncmp(proto, "ftps", 5) == 0) {
+  if (strcmp(proto, "ftp") == 0 ||
+      strcmp(proto, "ftps") == 0) {
     array_header *argv;
 
     /* We should only be handling SITE COPY (over FTP/FTPS) requests here */
@@ -172,8 +172,6 @@ static void case_replace_copy_paths(cmd_rec *cmd, const char *proto,
     cmd->arg = pstrcat(cmd->pool, cmd->argv[1], " ", src_path, " ", dst_path,
       NULL);
   }
-
-  return;
 }
 
 static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
@@ -188,7 +186,7 @@ static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
     dst_path = pstrdup(cmd->tmp_pool, "/");
   }
 
-  if (strncmp(proto, "sftp", 5) == 0) {
+  if (strcmp(proto, "sftp") == 0) {
     /* We should only be handling SFTP SYMLINK and LINK requests here. */
 
     cmd->arg = pstrcat(cmd->pool, src_path, "\t", dst_path, NULL);
@@ -197,20 +195,13 @@ static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
       cmd->argv[1] = cmd->arg;
     }
   }
-
-  return;
 }
 
-static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
-    const char *file, int path_index) {
+static void case_replace_path(cmd_rec *cmd, const char *proto, const char *path,
+    int path_index) {
 
-  /* Minor nit: if dir is "//", then reduce it to just "/". */
-  if (strcmp(dir, "//") == 0) {
-    dir = pstrdup(cmd->tmp_pool, "/");
-  }
-
-  if (strncmp(proto, "ftp", 4) == 0 ||
-      strncmp(proto, "ftps", 5) == 0) {
+  if (strcmp(proto, "ftp") == 0 ||
+      strcmp(proto, "ftps") == 0) {
 
     /* Special handling of LIST/NLST/STAT commands, which can take options */
     if (pr_cmd_cmp(cmd, PR_CMD_LIST_ID) == 0 ||
@@ -226,19 +217,19 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
 
         arg = pstrdup(cmd->tmp_pool, cmd->arg);
         arg[path_index] = '\0';
-        arg = pstrcat(cmd->pool, arg, dir, file, NULL);
+        arg = pstrcat(cmd->pool, arg, path, NULL);
         cmd->arg = arg;
 
       } else {
-        cmd->arg = pstrcat(cmd->pool, dir, file, NULL);
+        cmd->arg = pstrdup(cmd->pool, path);
       }
 
     } else {
-      char *arg, *dup_path, *path;
+      char *arg, *dup_path;
       array_header *argv;
       int flags = PR_STR_FL_PRESERVE_COMMENTS;
 
-      path = pstrcat(cmd->pool, dir, file, NULL);
+      dup_path = pstrdup(cmd->pool, path);
 
       /* Be sure to overwrite the entire cmd->argv array, not just cmd->arg. */
       argv = make_array(cmd->pool, 2, sizeof(char *));
@@ -260,8 +251,6 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
       /* Handle spaces in the new path properly by breaking them up and adding
        * them into the argv.
        */
-      dup_path = pstrdup(cmd->tmp_pool, path);
-
       arg = pr_str_get_word(&dup_path, flags);
       while (arg != NULL) {
         pr_signals_handle();
@@ -294,7 +283,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
           pr_cmd_cmp(cmd, PR_CMD_XCWD_ID) == 0 ||
           pr_cmd_cmp(cmd, PR_CMD_XMKD_ID) == 0 ||
           pr_cmd_cmp(cmd, PR_CMD_XRMD_ID) == 0) {
-        cmd->arg = path;
+        cmd->arg = pstrdup(cmd->pool, path);
       }
     }
 
@@ -312,8 +301,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
     return;
   }
 
-  if (strncmp(proto, "sftp", 5) == 0) {
-
+  if (strcmp(proto, "sftp") == 0) {
     /* Main SFTP commands */
     if (pr_cmd_cmp(cmd, PR_CMD_RETR_ID) == 0 ||
         pr_cmd_cmp(cmd, PR_CMD_STOR_ID) == 0 ||
@@ -328,29 +316,17 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *dir,
         pr_cmd_strcmp(cmd, "REALPATH") == 0 ||
         pr_cmd_strcmp(cmd, "SETSTAT") == 0 ||
         pr_cmd_strcmp(cmd, "STAT") == 0) {
-      cmd->arg = pstrcat(cmd->pool, dir, file, NULL);
+      cmd->arg = pstrdup(cmd->pool, path);
     }
 
     return;
   }
 }
 
-static int case_have_file(pool *p, const char *dir, const char *file,
-    size_t file_len, const char **matched_file) {
-  DIR *dirh;
+static int case_scan_directory(pool *p, DIR *dirh, const char *dir_name,
+    const char *file, char **matched_file) {
   struct dirent *dent;
   const char *file_match;
-
-  /* Open the directory. */
-  dirh = pr_fsio_opendir(dir);
-  if (dirh == NULL) {
-    int xerrno = errno;
-
-    (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-      "error opening directory '%s': %s", dir, strerror(xerrno));
-    errno = xerrno;
-    return -1;
-  }
 
   /* Escape any existing fnmatch(3) characters in the file name. */
   file_match = pstrdup(p, file);
@@ -374,31 +350,165 @@ static int case_have_file(pool *p, const char *dir, const char *file,
   while (dent != NULL) {
     pr_signals_handle();
 
-    if (strncmp(dent->d_name, file, file_len + 1) == 0) {
-      (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-        "found exact match");
-      pr_fsio_closedir(dirh);
-
+    if (strcmp(dent->d_name, file) == 0) {
+      pr_trace_msg(trace_channel, 9,
+       "found exact match for file '%s' in directory '%s'", file, dir_name);
       *matched_file = NULL;
-      return TRUE;
+      return 0;
     }
 
     if (pr_fnmatch(file_match, dent->d_name, PR_FNM_CASEFOLD) == 0) {
       (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
-        "found case-insensitive match '%s' for '%s'", dent->d_name, file_match);
-      pr_fsio_closedir(dirh);
-
+        "found case-insensitive match '%s' for '%s' in directory '%s'",
+        dent->d_name, file_match, dir_name);
       *matched_file = pstrdup(p, dent->d_name);
-      return TRUE;
+      return 0;
     }
 
     dent = pr_fsio_readdir(dirh);
   }
 
-  /* Close the directory. */
-  pr_fsio_closedir(dirh);
+  errno = ENOENT;
+  return -1;
+}
 
-  return FALSE;
+static const char *case_normalize_path(pool *p, const char *path,
+    int *changed) {
+  register unsigned int i;
+  int xerrno;
+  char *iter_path, *normalized_path, **elts;
+  size_t path_len;
+  pr_fh_t *fh;
+  array_header *components;
+  pool *tmp_pool;
+
+  /* Special cases. */
+  path_len = strlen(path);
+  if (path_len == 1) {
+    if (path[0] == '/' ||
+        path[1] == '.') {
+      /* Nothing to do. */
+      return path;
+    }
+  }
+
+  /* Can we open the path as is?  If so, we can avoid the more expensive
+   * filesystem walk.  Note that the path might point to a directory.
+   */
+  fh = pr_fsio_open(path, O_RDONLY);
+  xerrno = errno;
+
+  if (fh != NULL) {
+    (void) pr_fsio_close(fh);
+    return path;
+  }
+
+  if (xerrno != ENOENT) {
+    /* The path exists as is; that's OK. */
+    return path;
+  }
+
+  tmp_pool = make_sub_pool(p);
+
+  /* Note that it is tempting to use `pr_fs_split_path()`, however its
+   * semantics (resolving to an absolute path first) are not quite expected
+   * here.  So we'll just use pr_str_text_to_array() directly.
+   */
+  components = pr_str_text_to_array(tmp_pool, path, '/');
+
+  /* For the first component, what is the directory to open?  Depends;
+   * did the path start with '/', '.', or neither?
+   */
+  iter_path = pstrdup(tmp_pool, ".");
+  if (*path == '/') {
+    iter_path = pstrdup(tmp_pool, "/");
+  }
+
+  elts = components->elts;
+  for (i = 0; i < components->nelts; i++) {
+    int res;
+    pool *iter_pool;
+    DIR *dirh;
+    char *matched_elt = NULL;
+
+    /* Note that the last component in the list should be the target; we
+     * don't want to use opendir(3) on the target.
+     */
+    iter_pool = make_sub_pool(tmp_pool);
+
+    dirh = pr_fsio_opendir(iter_path);
+    if (dirh == NULL) {
+      int xerrno = errno;
+
+      /* This should never happen, right? It could, due to races with other
+       * processes' changes to the filesystem.
+       */
+      (void) pr_log_writefile(case_logfd, MOD_CASE_VERSION,
+        "error opening directory '%s': %s", iter_path, strerror(xerrno));
+      destroy_pool(iter_pool);
+
+      errno = xerrno;
+      return NULL;
+    }
+
+    res = case_scan_directory(iter_pool, dirh, iter_path, elts[i],
+      &matched_elt);
+    if (res == 0 &&
+        matched_elt != NULL) {
+      ((char **) components->elts)[i] = pstrdup(tmp_pool, matched_elt);
+
+      if (changed != NULL) {
+        *changed = TRUE;
+      }
+    }
+
+    pr_fsio_closedir(dirh);
+    destroy_pool(iter_pool);
+
+    iter_path = pdircat(tmp_pool, iter_path, elts[i], NULL);
+  }
+
+  /* Now return the normalized path, built from our possibly-modified
+   * components.  We would use `pr_fs_join_join()`, but it has a now-corrected
+   * bug.
+   */
+  elts = components->elts;
+  if (*path == '/') {
+    normalized_path = pstrcat(p, "/", elts[0], NULL);
+
+  } else {
+    normalized_path = pstrdup(p, elts[0]);
+  }
+
+  for (i = 1; i < components->nelts; i++) {
+    char *elt;
+
+    elt = ((char **) components->elts)[i];
+    normalized_path = pdircat(p, normalized_path, elt, NULL);
+  }
+
+  destroy_pool(tmp_pool);
+
+  pr_trace_msg(trace_channel, 19, "normalized path '%s' to '%s'", path,
+    normalized_path);
+  return normalized_path;
+}
+
+static int case_have_file(pool *p, const char *path,
+    const char **matched_path) {
+  int changed = FALSE;
+  const char *normalized_path;
+
+  normalized_path = case_normalize_path(p, path, &changed);
+  if (normalized_path == NULL) {
+    return FALSE;
+  }
+
+  if (changed == TRUE) {
+    *matched_path = normalized_path;
+  }
+
+  return TRUE;
 }
 
 /* Command handlers
@@ -409,13 +519,11 @@ static int case_have_file(pool *p, const char *dir, const char *file,
  */
 MODRET case_pre_copy(cmd_rec *cmd) {
   config_rec *c;
-  const char *proto, *file_match = NULL;
-  char *src_path, *src_dir = NULL, *src_file = NULL,
-    *dst_path, *dst_dir = NULL, *dst_file = NULL, *src_ptr, *dst_ptr;
-  size_t file_len;
+  const char *proto, *matched_path = NULL;
+  char *src_path, *dst_path;
   int modified_arg = FALSE, res;
 
-  if (!case_engine) {
+  if (case_engine == FALSE) {
     return PR_DECLINED(cmd);
   }
 
@@ -454,101 +562,42 @@ MODRET case_pre_copy(cmd_rec *cmd) {
   src_path = cmd->argv[2];
   dst_path = cmd->argv[3];
 
-  /* Separate the path into directory and file components. */
-  src_ptr = strrchr(src_path, '/');
-  if (src_ptr == NULL) {
-    src_dir = ".";
-    src_file = src_path;
-
-  } else {
-    if (src_ptr != src_path) {
-      *src_ptr = '\0';
-      src_dir = src_path;
-      src_file = src_ptr + 1;
-
-    } else {
-      /* Handle the case where the path is "/path". */
-      src_dir = "/";
-      src_file = src_ptr + 1;
-    }
-  }
-
-  dst_ptr = strrchr(dst_path, '/');
-  if (dst_ptr == NULL) {
-    dst_dir = ".";
-    dst_file = dst_path;
-
-  } else {
-    if (dst_ptr != dst_path) {
-      *dst_ptr = '\0';
-      dst_dir = dst_path;
-      dst_file = dst_ptr + 1;
-
-    } else {
-      /* Handle the case where the path is "/path". */
-      dst_dir = "/";
-      dst_file = dst_ptr + 1;
-    }
-  }
-
   pr_trace_msg(trace_channel, 9,
     "checking client-sent source path '%s', destination path '%s'", src_path,
     dst_path);
 
-  file_len = strlen(src_file);
-
-  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
-    src_file, src_dir);
-
-  res = case_have_file(cmd->tmp_pool, src_dir, src_file, file_len, &file_match);
+  res = case_have_file(cmd->tmp_pool, src_path, &matched_path);
   if (res < 0) {
     return PR_DECLINED(cmd);
   }
 
   if (res == TRUE &&
-      file_match != NULL) {
+      matched_path != NULL) {
     /* Replace the source path */
-    src_path = pdircat(cmd->tmp_pool, src_dir, file_match, NULL);
+    src_path = pstrdup(cmd->tmp_pool, matched_path);
     modified_arg = TRUE;
 
   } else {
     pr_trace_msg(trace_channel, 9,
-      "no case-insensitive matches found for file '%s' in directory '%s'",
-      src_file, src_dir);
-
-    /* No match (or exact match) found; restore the original src_path. */
-    if (src_ptr != NULL) {
-      *src_ptr = '/';
-    }
+      "no case-insensitive matches found for path '%s'", src_path);
   }
 
-  file_len = strlen(dst_file);
-  file_match = NULL;
-
-  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
-    dst_file, dst_dir);
-
-  res = case_have_file(cmd->tmp_pool, dst_dir, dst_file, file_len, &file_match);
+  matched_path = NULL;
+  res = case_have_file(cmd->tmp_pool, dst_path, &matched_path);
   if (res == TRUE) {
-    if (file_match != NULL) {
+    if (matched_path != NULL) {
       /* Replace the destination path */
-      dst_path = pdircat(cmd->tmp_pool, dst_dir, file_match, NULL);
+      dst_path = pstrdup(cmd->tmp_pool, matched_path);
       modified_arg = TRUE;
     }
 
   } else {
     pr_trace_msg(trace_channel, 9,
-      "no case-insensitive matches found for file '%s' in directory '%s'",
-      dst_file, dst_dir);
-
-    /* No match (or exact match) found; restore the original dst_path. */
-    if (dst_ptr != NULL) {
-      *dst_ptr = '/';
-    }
+      "no case-insensitive matches found for path '%s'", dst_path);
   }
 
   /* Overwrite the client-given paths. */
-  if (modified_arg) {
+  if (modified_arg == TRUE) {
     case_replace_copy_paths(cmd, proto, src_path, dst_path);
   }
 
@@ -557,12 +606,11 @@ MODRET case_pre_copy(cmd_rec *cmd) {
 
 MODRET case_pre_cmd(cmd_rec *cmd) {
   config_rec *c;
-  char *path = NULL, *dir = NULL, *file = NULL, *replace_path = NULL, *tmp;
-  const char *proto = NULL, *file_match = NULL;
-  size_t file_len;
+  const char *proto = NULL, *matched_path = NULL;
+  char *path = NULL;
   int path_index = -1, res;
 
-  if (!case_engine) {
+  if (case_engine == FALSE) {
     return PR_DECLINED(cmd);
   }
 
@@ -582,7 +630,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
 
   proto = pr_session_get_protocol(0);
 
-  if (strncmp(proto, "sftp", 5) == 0) {
+  if (strcmp(proto, "sftp") == 0) {
     path = pstrdup(cmd->tmp_pool, cmd->arg);
 
   } else {
@@ -659,32 +707,7 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
   }
 
   pr_trace_msg(trace_channel, 9, "checking client-sent path '%s'", path);
-
-  /* Separate the path into directory and file components. */
-  tmp = strrchr(path, '/');
-  if (tmp == NULL) {
-    dir = ".";
-    file = path;
-
-  } else {
-    if (tmp != path) {
-      *tmp++ = '\0';
-      dir = path;
-      file = tmp;
-
-    } else {
-      /* Handle the case where the path is "/path". */
-      dir = "/";
-      file = tmp + 1;
-    }
-  }
-
-  file_len = strlen(file);
-
-  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
-    file, dir);
-
-  res = case_have_file(cmd->tmp_pool, dir, file, file_len, &file_match);
+  res = case_have_file(cmd->tmp_pool, path, &matched_path);
   if (res < 0) {
     return PR_DECLINED(cmd);
   }
@@ -692,28 +715,22 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
   if (res == FALSE) {
     /* No match found. */
     pr_trace_msg(trace_channel, 9,
-      "no case-insensitive matches found for file '%s' in directory '%s'",
-      file, dir);
+      "no case-insensitive matches found for path '%s'", path);
     return PR_DECLINED(cmd);
   }
 
   /* We found a match for the given file. */
 
-  if (file_match == NULL) {
+  if (matched_path == NULL) {
     /* Exact match found; nothing more to do. */
     return PR_DECLINED(cmd);
   }
 
   /* Overwrite the client-given path. */
-
-  replace_path = tmp ? pstrcat(cmd->tmp_pool, dir, "/", NULL) : "";
-  replace_path = pdircat(cmd->tmp_pool, replace_path, file_match, NULL);
   pr_trace_msg(trace_channel, 9, "replacing path '%s' with '%s'",
-    path, replace_path);
+    path, matched_path);
 
-  case_replace_path(cmd, proto,
-    tmp ? pstrcat(cmd->pool, dir, "/", NULL) : "", file_match, path_index);
-
+  case_replace_path(cmd, proto, matched_path, path_index);
   return PR_DECLINED(cmd);
 }
 
@@ -722,13 +739,11 @@ MODRET case_pre_cmd(cmd_rec *cmd) {
  */
 MODRET case_pre_link(cmd_rec *cmd) {
   config_rec *c;
-  char *arg = NULL, *src_path, *src_dir = NULL, *src_file = NULL,
-    *dst_path, *dst_dir = NULL, *dst_file = NULL, *src_ptr, *dst_ptr, *ptr;
-  const char *proto = NULL, *file_match = NULL;
-  size_t file_len;
+  const char *proto = NULL, *matched_path = NULL;
+  char *arg = NULL, *src_path, *dst_path, *ptr;
   int modified_arg = FALSE, res;
 
-  if (!case_engine) {
+  if (case_engine == FALSE) {
     return PR_DECLINED(cmd);
   }
 
@@ -753,7 +768,6 @@ MODRET case_pre_link(cmd_rec *cmd) {
    */
 
   arg = pstrdup(cmd->tmp_pool, cmd->arg);
-
   ptr = strchr(arg, '\t');
   if (ptr == NULL) {
     /* Malformed SFTP SYMLINK/LINK cmd_rec. */
@@ -767,101 +781,41 @@ MODRET case_pre_link(cmd_rec *cmd) {
   src_path = arg;
   dst_path = ptr + 1;
 
-  /* Separate the path into directory and file components. */
-  src_ptr = strrchr(src_path, '/');
-  if (src_ptr == NULL) {
-    src_dir = ".";
-    src_file = src_path;
-
-  } else {
-    if (src_ptr != src_path) {
-      *src_ptr = '\0';
-      src_dir = src_path;
-      src_file = src_ptr + 1;
-
-    } else {
-      /* Handle the case where the path is "/path". */
-      src_dir = "/";
-      src_file = src_ptr + 1;
-    }
-  }
-
-  dst_ptr = strrchr(dst_path, '/');
-  if (dst_ptr == NULL) {
-    dst_dir = ".";
-    dst_file = dst_path;
-
-  } else {
-    if (dst_ptr != dst_path) {
-      *dst_ptr = '\0';
-      dst_dir = dst_path;
-      dst_file = dst_ptr + 1;
-
-    } else {
-      /* Handle the case where the path is "/path". */
-      dst_dir = "/";
-      dst_file = dst_ptr + 1;
-    }
-  }
-
   pr_trace_msg(trace_channel, 9,
     "checking client-sent source path '%s', destination path '%s'", src_path,
     dst_path);
 
-  file_len = strlen(src_file);
-
-  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
-    src_file, src_dir);
-
-  res = case_have_file(cmd->tmp_pool, src_dir, src_file, file_len, &file_match);
+  res = case_have_file(cmd->tmp_pool, src_path, &matched_path);
   if (res == TRUE) {
-    if (file_match != NULL) {
+    if (matched_path != NULL) {
       /* Replace the source path */
-      src_path = pdircat(cmd->tmp_pool, src_dir, file_match, NULL);
+      src_path = pstrdup(cmd->tmp_pool, matched_path);
       modified_arg = TRUE;
     }
 
   } else {
     pr_trace_msg(trace_channel, 9,
-      "no case-insensitive matches found for file '%s' in directory '%s'",
-      src_file, src_dir);
-
-    /* No match (or exact match) found; restore the original src_path. */
-    if (src_ptr != NULL) {
-      *src_ptr = '/';
-    }
+      "no case-insensitive matches found for path '%s'", src_path);
   }
 
-  file_len = strlen(dst_file);
-  file_match = NULL;
-
-  pr_trace_msg(trace_channel, 9, "checking for file '%s' in directory '%s'",
-    dst_file, dst_dir);
-
-  res = case_have_file(cmd->tmp_pool, dst_dir, dst_file, file_len, &file_match);
+  matched_path = NULL;
+  res = case_have_file(cmd->tmp_pool, dst_path, &matched_path);
   if (res == TRUE) {
-    if (file_match != NULL) {
+    if (matched_path != NULL) {
       /* Replace the destination path */
-      dst_path = pdircat(cmd->tmp_pool, dst_dir, file_match, NULL);
+      dst_path = pstrdup(cmd->tmp_pool, matched_path);
       modified_arg = TRUE;
     }
 
   } else {
     pr_trace_msg(trace_channel, 9,
-      "no case-insensitive matches found for file '%s' in directory '%s'",
-      dst_file, dst_dir);
-
-    /* No match (or exact match) found; restore the original dst_path. */
-    if (dst_ptr != NULL) {
-      *dst_ptr = '/';
-    }
+      "no case-insensitive matches found for path '%s'", dst_path);
   }
 
   /* Overwrite the client-given paths. */
-  if (modified_arg) {
+  if (modified_arg == TRUE) {
     pr_trace_msg(trace_channel, 9, "replacing %s paths with '%s' and '%s'",
       (char *) cmd->argv[0], src_path, dst_path);
-
     case_replace_link_paths(cmd, proto, src_path, dst_path);
   }
 
@@ -948,27 +902,29 @@ static int case_sess_init(void) {
     case_engine = TRUE;
   }
 
-  if (!case_engine) {
+  if (case_engine == FALSE) {
     return 0;
   }
 
   c = find_config(main_server->conf, CONF_PARAM, "CaseLog", FALSE);
-  if (c == NULL)
+  if (c == NULL) {
     return 0;
+  }
 
   if (strncasecmp((char *) c->argv[0], "none", 5) != 0) {
-    int res;
+    int res, xerrno;
 
     pr_signals_block();
     PRIVS_ROOT
     res = pr_log_openfile((char *) c->argv[0], &case_logfd, 0660);
+    xerrno = errno;
     PRIVS_RELINQUISH
     pr_signals_unblock();
 
     if (res < 0) {
       pr_log_pri(PR_LOG_NOTICE, MOD_CASE_VERSION
         ": error opening CaseLog '%s': %s", (char *) c->argv[0],
-        strerror(errno)); 
+        strerror(xerrno));
     }
   }
 
