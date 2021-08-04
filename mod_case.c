@@ -172,6 +172,8 @@ static void case_replace_copy_paths(cmd_rec *cmd, const char *proto,
     cmd->arg = pstrcat(cmd->pool, cmd->argv[1], " ", src_path, " ", dst_path,
       NULL);
   }
+
+  pr_cmd_clear_cache(cmd);
 }
 
 static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
@@ -195,6 +197,8 @@ static void case_replace_link_paths(cmd_rec *cmd, const char *proto,
       cmd->argv[1] = cmd->arg;
     }
   }
+
+  pr_cmd_clear_cache(cmd);
 }
 
 static void case_replace_path(cmd_rec *cmd, const char *proto, const char *path,
@@ -213,6 +217,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *path,
        */
 
       if (path_index > 0) {
+        unsigned int i;
         char *arg;
 
         arg = pstrdup(cmd->tmp_pool, cmd->arg);
@@ -220,9 +225,22 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *path,
         arg = pstrcat(cmd->pool, arg, path, NULL);
         cmd->arg = arg;
 
+        /* We also need to find the index into cmd->argv to replace.  Look
+         * for the first item that does not start with `-`.
+         */
+        for (i = 1; i < cmd->argc; i++) {
+          if (*((char *) cmd->argv[i]) != '-') {
+            break;
+          }
+        }
+
+        cmd->argv[i] = pstrdup(cmd->pool, path);
+
       } else {
         cmd->arg = pstrdup(cmd->pool, path);
       }
+
+      pr_cmd_clear_cache(cmd);
 
     } else {
       char *arg, *dup_path;
@@ -318,6 +336,7 @@ static void case_replace_path(cmd_rec *cmd, const char *proto, const char *path,
         pr_cmd_strcmp(cmd, "STAT") == 0) {
       cmd->arg = pstrdup(cmd->pool, path);
     }
+    pr_cmd_clear_cache(cmd);
 
     return;
   }
