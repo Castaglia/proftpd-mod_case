@@ -1320,8 +1320,9 @@ sub caseignore_retr {
       }
 
       my $buf;
-      $conn->read($buf, 25);
-      eval { $conn->close() };
+      while ($conn->read($buf, 25) > 0) {
+      }
+      eval { $conn->close(5) };
       sleep(1);
 
       my $resp_code = $client->response_code();
