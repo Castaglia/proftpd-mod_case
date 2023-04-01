@@ -199,6 +199,7 @@ sub caseignore_sftp_realpath {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -334,6 +335,7 @@ sub caseignore_sftp_lstat {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -466,6 +468,7 @@ sub caseignore_sftp_setstat {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -601,6 +604,7 @@ sub caseignore_sftp_opendir {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -764,6 +768,7 @@ sub caseignore_sftp_stat {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -899,6 +904,7 @@ sub caseignore_sftp_readlink {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1025,6 +1031,7 @@ sub caseignore_sftp_symlink_src {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1158,6 +1165,7 @@ sub caseignore_sftp_symlink_src_issue5 {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1302,6 +1310,7 @@ sub caseignore_sftp_symlink_dst {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1445,6 +1454,7 @@ sub caseignore_sftp_symlink_dst_issue5 {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1567,6 +1577,7 @@ sub caseignore_sftp_download {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1718,6 +1729,7 @@ sub caseignore_sftp_upload {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1849,6 +1861,7 @@ sub caseignore_sftp_mkdir {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -1916,19 +1929,16 @@ sub caseignore_sftp_mkdir {
         die("Can't use SFTP on SSH2 server: [$err_name] ($err_code) $err_str");
       }
 
+      # Due to Issue #1639, ProFTPD now treats EEXIST errors for MKDIR
+      # requests as success.
       my $res = $sftp->mkdir('TeSt.D');
-      if ($res) {
-        die("MKDIR TeSt.D succeeded unexpectedly");
+      unless ($res) {
+        my ($err_code, $err_name) = $sftp->error();
+        die("Can't mkdir TeSt.D: [$err_name] ($err_code)");
       }
-
-      my ($err_code, $err_name) = $sftp->error();
 
       $sftp = undef;
       $ssh2->disconnect();
-
-      my $expected = 'SSH_FX_FAILURE';
-      $self->assert($expected eq $err_name,
-        test_msg("Expected error '$expected', got '$err_name'"));
 
       if ($^O ne 'darwin') {
         # Avoid this check on Mac OSX, due to its default case-insensitve
