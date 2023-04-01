@@ -1,0 +1,75 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '**/*.md'
+      - '**/doc/*'
+  pull_request:
+    branches:
+      - master
+    paths-ignore:
+      - '**/*.md'
+      - '**/doc/*'
+  schedule:
+    - cron: "22 7 * * 5"
+
+jobs:
+  analyze:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: true
+      matrix:
+        language:
+          - cpp
+
+    steps:
+      - name: Checkout ProFTPD
+        uses: actions/checkout@v3
+        with:
+          repository: proftpd/proftpd
+
+      - name: Checkout mod_case
+        uses: actions/checkout@v3
+        with:
+          path: proftpd-mod_case
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+
+      - name: Prepare module
+        run: |
+          cp proftpd-mod_case/mod_case.c contrib/mod_case.c
+
+      - name: Configure
+        run: |
+          ./configure --with-modules=mod_case
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+          config-file: proftpd-mod_case/.codeql.yml
+          queries: +security-and-quality
+          source-root: proftpd-mod_case
+
+      - name: Build
+        run: |
+          make
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:${{ matrix.language }}"
+          checkout_path: proftpd-mod_case
+          output: sarif-results
+          upload: true

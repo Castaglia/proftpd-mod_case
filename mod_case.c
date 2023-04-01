@@ -42,7 +42,7 @@ static int case_expr_eval_cmds(cmd_rec *cmd, array_header *list) {
   int cmd_id, found;
   register unsigned int i;
 
-  for (i = 0; i < list->nelts; i++) { 
+  for (i = 0; i < list->nelts; i++) {
     char *c = ((char **) list->elts)[i];
     found = 0;
 
