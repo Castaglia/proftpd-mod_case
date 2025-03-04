@@ -1423,9 +1423,9 @@ sub caseignore_retr_issue5 {
 
       my $buf;
       $conn->read($buf, 25);
-      eval { $conn->close() };
-
       sleep(1);
+
+      eval { $conn->close() };
 
       my $resp_code = $client->response_code();
       my $resp_msg = $client->response_msg();
