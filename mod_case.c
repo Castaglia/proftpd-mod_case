@@ -23,7 +23,7 @@
 #include "conf.h"
 #include "privs.h"
 
-#define MOD_CASE_VERSION	"mod_case/0.9.1"
+#define MOD_CASE_VERSION	"mod_case/0.9.2"
 
 /* Make sure the version of proftpd is as necessary. */
 #if PROFTPD_VERSION_NUMBER < 0x0001030402
