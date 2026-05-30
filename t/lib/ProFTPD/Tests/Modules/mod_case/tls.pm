@@ -38,8 +38,8 @@ sub caseignore_tls_retr {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_tls/server-cert.pem");
-  my $ca_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_tls/ca-cert.pem");
+  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_tls/server-cert.pem");
+  my $ca_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_tls/ca-cert.pem");
 
   my $dst_file = File::Spec->rel2abs("$tmpdir/dst.txt");
 
@@ -52,6 +52,7 @@ sub caseignore_tls_retr {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',

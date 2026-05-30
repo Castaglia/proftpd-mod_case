@@ -125,8 +125,8 @@ sub set_up {
   # Make sure that mod_sftp does not complain about permissions on the hostkey
   # files.
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   unless (chmod(0400, $rsa_host_key, $dsa_host_key)) {
     die("Can't set perms on $rsa_host_key, $dsa_host_key: $!");
@@ -184,8 +184,8 @@ sub caseignore_sftp_realpath {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $sub_dir = File::Spec->rel2abs("$setup->{home_dir}/test.d");
   create_test_dir($setup, $sub_dir);
@@ -311,8 +311,8 @@ sub caseignore_sftp_lstat {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
   create_test_file($setup, $test_file);
@@ -453,8 +453,8 @@ sub caseignore_sftp_setstat {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
   create_test_file($setup, $test_file);
@@ -589,8 +589,8 @@ sub caseignore_sftp_opendir {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $sub_dir = File::Spec->rel2abs("$setup->{home_dir}/test.d");
   create_test_dir($setup, $sub_dir);
@@ -751,8 +751,8 @@ sub caseignore_sftp_stat {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
   create_test_file($setup, $test_file);
@@ -886,8 +886,8 @@ sub caseignore_sftp_readlink {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
   create_test_file($setup, $test_file);
@@ -1010,8 +1010,8 @@ sub caseignore_sftp_symlink_src {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
   create_test_file($setup, $test_file);
@@ -1141,8 +1141,8 @@ sub caseignore_sftp_symlink_src_issue5 {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_dir = File::Spec->rel2abs("$tmpdir/tEsT.d/SuB.d");
   create_test_dir($setup, $test_dir);
@@ -1275,8 +1275,8 @@ sub caseignore_sftp_symlink_dst {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$tmpdir/test.txt");
   create_test_file($setup, $test_file);
@@ -1416,8 +1416,8 @@ sub caseignore_sftp_symlink_dst_issue5 {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_dir = File::Spec->rel2abs("$tmpdir/tEsT.d/SuB.d");
   create_test_dir($setup, $test_dir);
@@ -1560,8 +1560,8 @@ sub caseignore_sftp_download {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$setup->{home_dir}/test.txt");
   create_test_file($setup, $test_file);
@@ -1699,8 +1699,8 @@ sub caseignore_sftp_upload {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$setup->{home_dir}/test.txt");
   if (open(my $fh, "> $test_file")) {
@@ -1844,8 +1844,8 @@ sub caseignore_sftp_mkdir {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_dir = File::Spec->rel2abs("$setup->{home_dir}/test.d");
   create_test_dir($setup, $test_dir);
@@ -1976,8 +1976,8 @@ sub caseignore_sftp_rmdir {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_dir = File::Spec->rel2abs("$setup->{home_dir}/test.d");
   create_test_dir($setup, $test_dir);
@@ -1991,6 +1991,7 @@ sub caseignore_sftp_rmdir {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2099,8 +2100,8 @@ sub caseignore_sftp_remove {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $test_file = File::Spec->rel2abs("$setup->{home_dir}/test.txt");
   create_test_file($setup, $test_file);
@@ -2112,6 +2113,7 @@ sub caseignore_sftp_remove {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2220,8 +2222,8 @@ sub caseignore_sftp_rename {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $src_file = File::Spec->rel2abs("$tmpdir/src.txt");
   create_test_file($setup, $src_file);
@@ -2237,6 +2239,7 @@ sub caseignore_sftp_rename {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2348,8 +2351,8 @@ sub caseignore_sftp_rename_overwrite {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $src_file = File::Spec->rel2abs("$tmpdir/src.txt");
   create_test_file($setup, $src_file);
@@ -2366,6 +2369,7 @@ sub caseignore_sftp_rename_overwrite {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -2476,8 +2480,8 @@ sub caseignore_sftp_rename_filenames_with_spaces {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'case');
 
-  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_rsa_key");
-  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/tests/t/etc/modules/mod_sftp/ssh_host_dsa_key");
+  my $rsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_rsa_key");
+  my $dsa_host_key = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_sftp/ssh_host_dsa_key");
 
   my $src_file = File::Spec->rel2abs("$tmpdir/src file.txt");
   create_test_file($setup, $src_file);
@@ -2494,6 +2498,7 @@ sub caseignore_sftp_rename_filenames_with_spaces {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
