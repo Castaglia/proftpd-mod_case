@@ -163,10 +163,27 @@ shared module:
 </pre>
 
 <p>
+<b>Logging</b><br>
+The <code>mod_case</code> module supports different forms of logging.
+The main module logging is done via the <code>CaseLog</code> directive.  For
+debugging purposes, the module also uses <a href="http://www.proftpd.org/docs/howto/Tracing.html">trace logging</a>, via the module-specific log channels:
+<ul>
+  <li>case
+</ul>
+Thus for trace logging, to aid in debugging, you would use the following in
+your <code>proftpd.conf</code>:
+<pre>
+  TraceLog /path/to/trace.log
+  Trace case:20
+</pre>
+This trace logging can generate large files; it is intended for debugging
+use only, and should be removed from any production configuration.
+
+<p>
 <hr><br>
 
 <font size=2><b><i>
-&copy; Copyright 2004-2021 TJ Saunders<br>
+&copy; Copyright 2004-2026 TJ Saunders<br>
  All Rights Reserved<br>
 </i></b></font>
 
