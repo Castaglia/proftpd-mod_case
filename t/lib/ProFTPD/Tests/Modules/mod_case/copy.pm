@@ -118,6 +118,7 @@ sub caseignore_site_copy {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -216,6 +217,7 @@ sub caseignore_site_copy_issue5 {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -311,6 +313,7 @@ sub caseignore_site_cpfr_cpto {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -417,6 +420,7 @@ sub caseignore_site_cpfr_cpto_overwrite {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',
@@ -523,6 +527,7 @@ sub caseignore_site_cpfr_cpto_filenames_with_spaces {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     AllowOverwrite => 'on',
     AllowStoreRestart => 'on',

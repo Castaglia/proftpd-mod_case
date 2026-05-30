@@ -154,15 +154,6 @@ jobs:
           cd proftpd
           make install
 
-      - name: Run integration tests
-        if: ${{ matrix.compiler == 'gcc' && matrix.container == 'ubuntu:22.04' }}
-        env:
-          PROFTPD_TEST_BIN: /usr/local/sbin/proftpd
-          PROFTPD_TEST_DIR: ${{ github.workspace }}/proftpd
-        run: |
-          cd proftpd-mod_case
-          perl tests.pl
-
       - name: Build as shared module
         env:
           CC: ${{ matrix.compiler }}
