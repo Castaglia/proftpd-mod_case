@@ -48,7 +48,7 @@ jobs:
         if: ${{ matrix.container == 'ubuntu:22.04' }}
         run: |
           apt-get update -qq
-          apt-get install -y git
+          apt-get install -y --no-install-recommends git
           cd proftpd-mod_case
           if [[ -n $(git diff --check HEAD^) ]]; then
             echo "You must remove whitespace before submitting a pull request"
@@ -101,15 +101,15 @@ jobs:
         run: |
           apt-get update -qq
           # for builds
-          apt-get install -y clang gcc make
+          apt-get install -y --no-install-recommends clang gcc libc-dev make
           # for unit tests
-          apt-get install -y check libsubunit-dev
+          apt-get install -y --no-install-recommends check libsubunit-dev
 
           # for OpenSSL support
-          apt-get install -y libssl-dev
+          apt-get install -y --no-install-recommends libssl-dev openssl
 
           # for integration/regression test
-          apt-get install -y \
+          apt-get install -y --no-install-recommends \
             libdata-dumper-simple-perl \
             libdatetime-perl \
             libfile-copy-recursive-perl \
@@ -126,10 +126,10 @@ jobs:
           PERL_MM_USE_DEFAULT=1 perl -MCPAN -e 'install Net::FTPSSL'
 
           # for test code coverage
-          apt-get install -y lcov ruby
+          apt-get install -y --no-install-recommends lcov ruby
           gem install coveralls-lcov
           # for HTML validation
-          apt-get install -y tidy
+          apt-get install -y --no-install-recommends tidy
 
           # for debugging
           clang --version

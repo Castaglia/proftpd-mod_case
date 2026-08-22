@@ -1941,7 +1941,7 @@ sub caseignore_sftp_mkdir {
       $ssh2->disconnect();
 
       if ($^O ne 'darwin') {
-        # Avoid this check on Mac OSX, due to its default case-insensitve
+        # Avoid this check on Mac OSX, due to its default case-insensitive
         # (but case-preserving) filesystem.  Yuck.
         $self->assert(!-d $bad_dir,
           test_msg("Directory $bad_dir exists unexpectedly"));
